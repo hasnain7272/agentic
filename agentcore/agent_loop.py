@@ -265,7 +265,17 @@ Always explain your reasoning before taking actions."""
                     if event["type"] in ("token", "reasoning", "state_change"):
                         yield event
                     elif event["type"] == "tool_calls":
-                        for tool_call in event["calls"]:
+                        # Store the assistant message with tool_calls for the conversation history
+                        tool_calls = event["calls"]
+                        content = event.get("content", "")
+                        context.messages.append({
+                            "role": "assistant",
+                            "content": content,
+                            "tool_calls": tool_calls,
+                        })
+                        await self._persist_message_with_tool_calls(context, "assistant", content, tool_calls)
+                        
+                        for tool_call in tool_calls:
                             async for tool_event in self._execute_tool(context, tool_call):
                                 yield tool_event
                         break  # Break inner loop, continue outer loop with new context
@@ -369,7 +379,7 @@ Always explain your reasoning before taking actions."""
                 tool_name, arguments, "completed" if tool_success else "failed",
                 result_data.get("data") if isinstance(result_data, dict) else result_data,
                 result_data.get("error") if isinstance(result_data, dict) else None,
-            )
+)
             break
 
         # Add result to conversation
@@ -381,12 +391,15 @@ Always explain your reasoning before taking actions."""
             content = json.dumps(content, default=str)
 
         context.messages.append({
-            "role": "tool", "name": tool_name, "content": content,
+            "role": "tool", "content": content, "tool_call_id": tool_call_id,
         })
+        
+        # Persist the tool result message to database
+        await self._persist_message(context, "tool", content, tool_call_id)
 
         yield {"type": "tool_result", "tool": tool_name, "result": result_data}
 
-    async def _persist_message(self, context: AgentContext, role: str, content: str) -> None:
+    async def _persist_message(self, context: AgentContext, role: str, content: str, tool_call_id: str = None) -> None:
         try:
             async for db in get_db():
                 from sqlalchemy import select
@@ -400,10 +413,38 @@ Always explain your reasoning before taking actions."""
                 )
                 if existing.scalar_one_or_none():
                     break
-                await add_message(db, context.session_id, role, content, context.task_id)
+                await add_message(db, context.session_id, role, content, context.task_id, tool_call_id)
                 break
         except Exception as e:
             logger.error(f"Failed to persist message: {e}")
+
+    async def _persist_message_with_tool_calls(self, context: AgentContext, role: str, content: str, tool_calls: list) -> None:
+        """Persist a message that includes tool_calls (for assistant messages with function calls)."""
+        try:
+            async for db in get_db():
+                from sqlalchemy import select
+                existing = await db.execute(
+                    select(MessageModel.id).where(
+                        MessageModel.session_id == context.session_id,
+                        MessageModel.task_id == context.task_id,
+                        MessageModel.role == role,
+                        MessageModel.content == content,
+                    ).limit(1)
+                )
+                if existing.scalar_one_or_none():
+                    break
+                msg = MessageModel(
+                    session_id=context.session_id,
+                    task_id=context.task_id,
+                    role=role,
+                    content=content,
+                    tool_calls=tool_calls,
+                )
+                db.add(msg)
+                await db.commit()
+                break
+        except Exception as e:
+            logger.error(f"Failed to persist message with tool_calls: {e}")
 
     async def _update_task(
         self,
@@ -494,7 +535,10 @@ async def process_task_event(
             select(MessageModel).where(MessageModel.session_id == session_id).order_by(MessageModel.created_at)
         )
         for msg in msg_result.scalars().all():
-            messages.append({"role": msg.role, "content": msg.content})
+            msg_dict = {"role": msg.role, "content": msg.content}
+            if msg.role == "tool" and msg.tool_call_id:
+                msg_dict["tool_call_id"] = msg.tool_call_id
+            messages.append(msg_dict)
 
         # Call LLM
         tools = get_all_tool_schemas()
