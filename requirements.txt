@@ -23,3 +23,10 @@ httpx>=0.27,<1.0
 
 # Security (SaaS Hardening)
 cryptography>=41.0
+
+# Additional dependencies for AgentCore
+pydantic-settings
+python-jose[cryptography]
+passlib[bcrypt]
+duckduckgo_search
+

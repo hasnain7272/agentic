@@ -163,19 +163,19 @@ async def web_search(
 
 def register_web_search_tool(registry):
     """Register web_search as a tool in the AgentCore tool registry."""
-    from agentcore.tools import ToolSchema, ToolParameter, ToolResult
+    from agentcore.tools import ToolSchema, ToolResult
 
     schema = ToolSchema(
         name="web_search",
         description="Search the web for current information, documentation, or news.",
-        category="knowledge",
-        parameters=[
-            ToolParameter(name="query", type="string", description="The search query"),
-            ToolParameter(
-                name="max_results", type="integer",
-                description="Max results (default 5)", required=False, default=5,
-            ),
-        ],
+        parameters={
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "The search query"},
+                "max_results": {"type": "integer", "description": "Max results (default 5)"}
+            },
+            "required": ["query"]
+        }
     )
 
     async def handler(session_id: str = "", **kwargs) -> ToolResult:
@@ -184,4 +184,14 @@ def register_web_search_tool(registry):
         result_text = await web_search(query, max_results)
         return ToolResult(success=True, data=result_text)
 
-    registry.register_handler("web_search", schema, handler)
+    registry.register(
+        name="web_search",
+        description=schema.description,
+        schema=schema,
+        handler=handler,
+        category="web",
+        requires_sandbox=False,
+        requires_approval=False,
+        origin="builtin"
+    )
+
