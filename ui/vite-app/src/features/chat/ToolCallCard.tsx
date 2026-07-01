@@ -64,14 +64,20 @@ export function ToolCallCard({ call }: { call: ToolCall }) {
     <>
       <div className={`overflow-hidden rounded-lg border ${shell}`}>
         <div className={`flex items-center gap-2 border-b border-slate-700/50 px-3 py-2 ${head} relative overflow-hidden`}>
-          {call.progress !== undefined && (
-            <div className="absolute left-0 top-0 h-full bg-cyan-500/10 transition-all duration-300" style={{ width: `${call.progress}%` }} />
+          {/* Progress indicator */}
+          {call.progress !== undefined ? (
+            <div className="flex items-center gap-1">
+              <div className="h-2 w-2 rounded-full bg-cyan-400" />
+              <span className="text-[9px] text-cyan-400">{call.progress}%</span>
+            </div>
+          ) : (
+            <div className="flex items-center gap-1">
+              <Loader2 className="h-3 w-3 text-cyan-400 animate-spin" />
+              <span className="text-[9px] text-cyan-400">Running</span>
+            </div>
           )}
-          <span className={`h-2 w-2 rounded-full ${dot} relative z-10`} />
-          <span className={`font-mono text-xs font-semibold ${title} relative z-10`}>{name}</span>
-          {call.progress !== undefined && (
-            <span className="text-[9px] text-cyan-400 relative z-10">{call.progress}%</span>
-          )}
+          <span className="h-2 w-2 rounded-full ${dot} relative z-10" />
+          <span className="font-mono text-xs font-semibold ${title} relative z-10">{name}</span>
           <span className="ml-1 flex items-center gap-1 relative z-10">
             {getStatusIcon(status)}
           </span>

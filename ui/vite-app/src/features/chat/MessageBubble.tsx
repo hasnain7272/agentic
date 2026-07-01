@@ -94,7 +94,12 @@ export function MessageBubble({ id, role, content, streaming, reasoning, tool_ca
 
         {!!tool_calls?.length && (
           <div className="mt-3 space-y-2">
-            {tool_calls.map((tc) => <ToolCallCard key={tc.id ?? tc.function?.name ?? `${tc.function?.name}-${tc.status}`} call={tc} />)}
+            {tool_calls.map((tc) => (
+              <ToolCallCard
+                key={tc.id ?? `${tc.function?.name}-${tc.status}-${Date.now()}`}
+                call={tc}
+              />
+            ))}
           </div>
         )}
       </div>

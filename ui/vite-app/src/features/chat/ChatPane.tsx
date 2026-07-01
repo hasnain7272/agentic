@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { CheckCircle2, CircleDashed, ShieldAlert, Sparkles, Wrench } from 'lucide-react';
+import { CheckCircle2, CircleDashed, ShieldAlert, Sparkles, Wrench, Loader2 } from 'lucide-react';
 import { ChatComposer } from '@/features/chat/ChatComposer';
 import { MessageBubble } from '@/features/chat/MessageBubble';
 import { useChatController } from '@/features/chat/useChatController';
@@ -23,6 +23,27 @@ export function ChatPane() {
     window.addEventListener('ag-insert-prompt', insert as EventListener);
     return () => window.removeEventListener('ag-insert-prompt', insert as EventListener);
   }, [chat]);
+
+  // Handle tool progress events from backend
+  useEffect(() => {
+    const handleToolProgress = (event: Event) => {
+      const detail = (event as CustomEvent<{ toolId: string; progress: number; status?: string }>).detail;
+      if (!detail) return;
+      console.warn('Tool progress event received:', detail);
+      // TODO: update UI state for the relevant tool call
+    };
+    window.addEventListener('tool-progress', handleToolProgress);
+    return () => window.removeEventListener('tool-progress', handleToolProgress);
+  }, [chat]);
+
+  // Handle websocket disconnect
+  useEffect(() => {
+    const handleDisconnect = () => {
+      console.warn('WebSocket disconnected – showing offline indicator');
+    };
+    window.addEventListener('websocket-disconnect', handleDisconnect);
+    return () => window.removeEventListener('websocket-disconnect', handleDisconnect);
+  }, []);
 
   return (
     <div className="flex h-full flex-col bg-slate-950">
@@ -71,31 +92,6 @@ export function ChatPane() {
           <ActivityRail items={chat.activity} streaming={chat.streaming} />
         </div>
       </div>
-    </div>
-  );
-}
-
-function ActivityRail({ items, streaming }: { items: ChatActivity[]; streaming: boolean }) {
-  if (!streaming && items.length === 0) {
-    return <p className="mt-1.5 text-center text-[10px] text-slate-600">Live workspace actions use your configured provider and sandbox.</p>;
-  }
-
-  const Icon = ({ kind }: { kind: ChatActivity['kind'] }) => {
-    if (kind === 'tool') return <Wrench className="h-3 w-3 text-blue-300" />;
-    if (kind === 'approval') return <ShieldAlert className="h-3 w-3 text-amber-300" />;
-    if (kind === 'done') return <CheckCircle2 className="h-3 w-3 text-emerald-300" />;
-    return <CircleDashed className="h-3 w-3 animate-spin text-cyan-300" />;
-  };
-
-  return (
-    <div className="mt-2 flex flex-wrap items-center justify-center gap-1.5">
-      {(items.length ? items : [{ id: 'idle', kind: 'thinking', label: 'Starting backend', detail: 'Opening live stream.' } as ChatActivity]).map((item) => (
-        <div key={item.id} className="flex max-w-full items-center gap-1.5 rounded-md border border-slate-800 bg-slate-950 px-2.5 py-1 text-[10px] text-slate-400">
-          <Icon kind={item.kind} />
-          <span className="font-semibold text-slate-300">{item.label}</span>
-          {item.detail && <span className="hidden max-w-[260px] truncate text-slate-500 sm:inline">{item.detail}</span>}
-        </div>
-      ))}
     </div>
   );
 }
