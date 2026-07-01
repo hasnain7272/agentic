@@ -489,16 +489,18 @@ class ToolRegistry:
 
         # Auto-discover from src.tools (fallback)
         try:
-            import src.tools as tools_pkg
-            prefix = tools_pkg.__name__ + "."
-            for _, modname, ispkg in pkgutil.walk_packages(tools_pkg.__path__, prefix):
-                if not ispkg:
-                    try:
-                        importlib.import_module(modname)
-                    except Exception as e:
-                        logger.warning(f"Failed to load tool module {modname}: {e}")
+            import os
+            if os.path.exists("src"):
+                import src.tools as tools_pkg
+                prefix = tools_pkg.__name__ + "."
+                for _, modname, ispkg in pkgutil.walk_packages(tools_pkg.__path__, prefix):
+                    if not ispkg:
+                        try:
+                            importlib.import_module(modname)
+                        except Exception as e:
+                            logger.warning(f"Failed to load tool module {modname}: {e}")
         except Exception as e:
-            logger.warning(f"Tool auto-discovery failed: {e}")
+            pass
 
         logger.info(f"Tool registry initialized with {len(self._tools)} tools")
 
