@@ -90,6 +90,10 @@ class TokenPayload:
             "type": self.type,
         }
 
+    @property
+    def user_id(self) -> str:
+        return self.sub
+
     def is_expired(self) -> bool:
         return time.time() > self.exp
 
@@ -259,16 +263,45 @@ def get_jwt_manager() -> JWTManager:
 
 
 # Convenience functions
-def create_access_token(**kwargs) -> str:
-    return get_jwt_manager().create_access_token(**kwargs)
+def create_access_token(
+    user_id: str,
+    email: str,
+    role: str,
+    tenant_id: str,
+    organization_id: Optional[str] = None,
+    session_id: Optional[str] = None,
+    permissions: List[str] = None,
+    extra_claims: Dict[str, Any] = None,
+) -> str:
+    return get_jwt_manager().create_access_token(
+        user_id=user_id, email=email, role=role, tenant_id=tenant_id,
+        organization_id=organization_id, session_id=session_id,
+        permissions=permissions, extra_claims=extra_claims,
+    )
 
 
-def create_refresh_token(**kwargs) -> str:
-    return get_jwt_manager().create_refresh_token(**kwargs)
+def create_refresh_token(
+    user_id: str,
+    tenant_id: str,
+    session_id: Optional[str] = None,
+) -> str:
+    return get_jwt_manager().create_refresh_token(
+        user_id=user_id, tenant_id=tenant_id, session_id=session_id
+    )
 
 
-def create_token_pair(**kwargs) -> Dict[str, str]:
-    return get_jwt_manager().create_token_pair(**kwargs)
+def create_token_pair(
+    user_id: str,
+    email: str,
+    role: str,
+    tenant_id: str,
+    organization_id: Optional[str] = None,
+    session_id: Optional[str] = None,
+) -> Dict[str, str]:
+    return get_jwt_manager().create_token_pair(
+        user_id=user_id, email=email, role=role, tenant_id=tenant_id,
+        organization_id=organization_id, session_id=session_id,
+    )
 
 
 def decode_token(token: str) -> TokenPayload:

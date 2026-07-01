@@ -128,6 +128,14 @@ class SessionModel(Base):
     archived_at = Column(DateTime, nullable=True)
 
     tenant = relationship("TenantModel", back_populates="sessions")
+
+    @property
+    def name(self) -> str:
+        return self.title
+
+    @property
+    def model(self) -> str:
+        return self.active_model_id
     user = relationship("UserModel", back_populates="sessions")
     tasks = relationship("TaskModel", back_populates="session")
     messages = relationship("MessageModel", back_populates="session")
@@ -381,8 +389,8 @@ async def create_session(
     model: str = None,
 ) -> SessionModel:
     session = SessionModel(
-        tenant_id=tenant_id, user_id=user_id, name=name,
-        model=model or get_settings().default_model,
+        tenant_id=tenant_id, user_id=user_id, title=name,
+        active_model_id=model or get_settings().default_model,
     )
     db.add(session)
     await db.commit()

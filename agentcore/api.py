@@ -139,7 +139,10 @@ async def register(req: RegisterRequest, db: AsyncSession = Depends(get_db)):
     await db.commit()
     await db.refresh(user)
 
-    tokens = create_token_pair(tenant.id, user.id, user.email, user.role, org.id)
+    tokens = create_token_pair(
+        user_id=user.id, email=user.email, role=user.role,
+        tenant_id=tenant.id, organization_id=org.id,
+    )
     return TokenResponse(
         access_token=tokens["access_token"], refresh_token=tokens["refresh_token"],
         expires_in=tokens["expires_in"], tenant_id=tenant.id,
@@ -153,7 +156,10 @@ async def login(req: LoginRequest, db: AsyncSession = Depends(get_db)):
     if not user or not verify_password(req.password, user.password_hash):
         raise HTTPException(401, "Invalid email or password")
 
-    tokens = create_token_pair(user.tenant_id, user.id, user.email, user.role, user.organization_id)
+    tokens = create_token_pair(
+        user_id=user.id, email=user.email, role=user.role,
+        tenant_id=user.tenant_id, organization_id=user.organization_id,
+    )
     return TokenResponse(
         access_token=tokens["access_token"], refresh_token=tokens["refresh_token"],
         expires_in=tokens["expires_in"], tenant_id=user.tenant_id,
@@ -188,7 +194,7 @@ async def create_session(
 ):
     session = SessionModel(
         tenant_id=user.tenant_id, user_id=user.user_id,
-        name=req.name, model=req.model or settings.default_model,
+        title=req.name, active_model_id=req.model or settings.default_model,
         system_prompt=req.system_prompt,
     )
     db.add(session)
