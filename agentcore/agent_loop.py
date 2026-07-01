@@ -81,26 +81,62 @@ class LLMCaller:
         messages: List[Dict[str, Any]],
         tools: List[Dict[str, Any]] = None,
         stream: bool = True,
+        context: Optional[AgentContext] = None,
     ) -> AsyncGenerator[Dict[str, Any], None]:
         settings = get_settings()
         raw_key = settings.llm_api_key
         base_url = settings.llm_base_url
         model = settings.llm_model
+        temperature = settings.llm_temperature
+        max_tokens = settings.llm_max_tokens
+
+        if context and context.tenant_id:
+            from sqlalchemy import select
+            from agentcore.database import get_db, TenantModel, SessionModel
+            async for db in get_db():
+                try:
+                    t_res = await db.execute(select(TenantModel).where(TenantModel.id == context.tenant_id))
+                    tenant = t_res.scalar_one_or_none()
+                    if tenant and tenant.settings:
+                        byom_configs = tenant.settings.get("byom_configs", [])
+                        if byom_configs:
+                            selected = byom_configs[0]
+                            s_res = await db.execute(select(SessionModel).where(SessionModel.id == context.session_id))
+                            session = s_res.scalar_one_or_none()
+                            if session and session.active_model_id:
+                                for cfg in byom_configs:
+                                    if cfg.get("id") == session.active_model_id:
+                                        selected = cfg
+                                        break
+                            if selected:
+                                if selected.get("api_key"):
+                                    raw_key = selected.get("api_key")
+                                if selected.get("model"):
+                                    model = selected.get("model")
+                                if selected.get("base_url") is not None:
+                                    base_url = selected.get("base_url")
+                                if selected.get("temperature") is not None:
+                                    temperature = float(selected.get("temperature"))
+                                if selected.get("max_tokens") is not None:
+                                    max_tokens = int(selected.get("max_tokens"))
+                except Exception as e:
+                    logger.error(f"Failed to load dynamic BYOM config: {e}")
+                break
 
         if not raw_key:
-            yield {"type": "error", "error": "No API key configured"}
+            yield {"type": "error", "error": "No API key configured. Please enter your API key in settings."}
             return
 
         completion_kwargs = {
             "model": model,
             "messages": messages,
-            "temperature": settings.llm_temperature,
+            "temperature": temperature,
             "stream": stream,
         }
         if settings.llm_top_p:
             completion_kwargs["top_p"] = settings.llm_top_p
-        if settings.llm_max_tokens:
-            completion_kwargs["max_tokens"] = settings.llm_max_tokens
+        if max_tokens:
+            completion_kwargs["max_tokens"] = max_tokens
         if tools:
             completion_kwargs["tools"] = tools
             completion_kwargs["tool_choice"] = "auto"
@@ -220,13 +256,14 @@ Always explain your reasoning before taking actions."""
                     [{"role": "system", "content": self.system_prompt}] + context.messages[-20:],
                     tools=openai_tools,
                     stream=stream,
+                    context=context,
                 ):
                     if event["type"] in ("token", "reasoning", "state_change"):
                         yield event
                     elif event["type"] == "tool_calls":
                         for tool_call in event["calls"]:
-                            result = await self._execute_tool(context, tool_call)
-                            yield result
+                            async for tool_event in self._execute_tool(context, tool_call):
+                                yield tool_event
                         break  # Break inner loop, continue outer loop with new context
                     elif event["type"] == "message":
                         content = event["content"]
@@ -292,7 +329,7 @@ Always explain your reasoning before taking actions."""
                 "message": str(e),
                 "approval_id": tool_call_id,
             }
-            return {"type": "approval_required", "tool": tool_name}
+            return
 
         # Execute tool
         context.state = AgentState.EXECUTING
@@ -561,7 +598,7 @@ async def run_agent_stream(
 ) -> AsyncGenerator[Dict[str, Any], None]:
     """Convenience wrapper for WebSocket callers that pass individual fields."""
     user = TokenPayload(
-        sub=user_id, user_id=user_id, tenant_id=tenant_id,
+        sub=user_id, tenant_id=tenant_id,
         role=user_role, email="", organization_id=None,
         exp=0, iat=0,
     )

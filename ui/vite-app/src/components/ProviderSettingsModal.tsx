@@ -6,8 +6,6 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { apiClient } from '@/api/client';
 import { useSessionStore } from '@/store/sessionStore';
 import { PRESETS, LLMSettings } from '@/features/settings/LLMSettings';
-import { GitSettings } from '@/features/settings/GitSettings';
-import { CapabilitySettings } from '@/features/settings/CapabilitySettings';
 import { ProviderSettingsFooter, ProviderSettingsHeader } from '@/components/ProviderSettingsChrome';
 
 interface Props { open: boolean; onClose: () => void; targetSessionId?: string; }
@@ -66,7 +64,7 @@ export function ProviderSettingsModal({ open, onClose, targetSessionId }: Props)
     } catch (e) {
       console.error('Failed to load session config', e);
     }
-  }, []);
+  }, [targetSessionId]);
 
   useEffect(() => {
     const el = dialogRef.current;
@@ -130,10 +128,6 @@ export function ProviderSettingsModal({ open, onClose, targetSessionId }: Props)
 
         <div className="flex-1 overflow-y-auto min-h-0 custom-scrollbar">
           <LLMSettings preset={preset} setPreset={setPreset} config={config} setConfig={setConfig} existingKey={existingKey} showKey={showKey} setShowKey={setShowKey} />
-          <div className="mx-6 my-4 h-px bg-slate-800/60" />
-          <GitSettings />
-          <div className="mx-6 my-4 h-px bg-slate-800/60" />
-          <CapabilitySettings />
         </div>
 
         {error && <div className="mx-6 mb-4 rounded-lg bg-red-900/30 px-3 py-2 text-xs text-red-400 ring-1 ring-red-800/40">{error}</div>}

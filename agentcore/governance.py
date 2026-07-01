@@ -110,9 +110,9 @@ class TenantToolPolicy:
         self.custom_policies = custom_policies or {}
 
     def is_allowed(self, tool_name: str) -> bool:
-        if tool_name in self.deny_tools:
+        if tool_name in self.deny_tools or "*" in self.deny_tools:
             return False
-        if self.allow_tools and tool_name not in self.allow_tools:
+        if self.allow_tools and "*" not in self.allow_tools and tool_name not in self.allow_tools:
             return False
         return True
 

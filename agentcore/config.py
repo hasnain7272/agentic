@@ -61,6 +61,12 @@ class Settings(BaseSettings):
     # LLM
     default_model: str = "gpt-4o-mini"
     litellm_master_key: Optional[str] = None
+    llm_api_key: Optional[str] = Field(default="", alias="LLM_API_KEY")
+    llm_base_url: Optional[str] = Field(default="", alias="LLM_BASE_URL")
+    llm_model: str = Field(default="gpt-4o-mini", alias="LLM_MODEL")
+    llm_temperature: float = 0.2
+    llm_top_p: Optional[float] = 0.95
+    llm_max_tokens: int = 8192
 
     # Web Search
     search_enabled: bool = True

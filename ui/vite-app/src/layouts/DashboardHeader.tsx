@@ -1,18 +1,16 @@
 import { useState, useEffect } from 'react';
-import { Layers, Sparkles, Settings, LogOut } from 'lucide-react';
+import { Layers, Settings, LogOut } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { useSessionStore } from '@/store/sessionStore';
 import { apiClient } from '@/api/client';
 
 interface DashboardHeaderProps {
   onOpenDrawer: () => void;
-  onOpenCapabilityStudio: () => void;
   onOpenSettings: () => void;
 }
 
 export function DashboardHeader({
   onOpenDrawer,
-  onOpenCapabilityStudio,
   onOpenSettings
 }: DashboardHeaderProps) {
   const [tenantInfo, setTenantInfo] = useState<any>(null);
@@ -50,15 +48,6 @@ export function DashboardHeader({
         </button>
         
         <Badge variant="outline" className="hidden h-4 border-emerald-500/30 bg-emerald-500/5 px-1.5 font-mono text-[9px] tracking-tighter text-emerald-400 sm:inline-flex">v4.0.0-PROD</Badge>
-        <div className="mx-1 hidden h-4 w-[1px] bg-slate-800/80 sm:block" />
-
-        <button
-          onClick={onOpenCapabilityStudio}
-          className="group hidden items-center gap-2 rounded-lg border border-transparent bg-slate-800/40 px-3 py-1.5 transition-all hover:border-slate-700/50 hover:bg-slate-800/70 sm:flex"
-        >
-          <Sparkles className="h-4 w-4 text-cyan-400 transition group-hover:scale-110" />
-          <span className="text-[11px] font-bold uppercase tracking-wider text-slate-100">Capabilities</span>
-        </button>
       </div>
 
       <div className="flex shrink-0 items-center gap-1.5 md:gap-3">
