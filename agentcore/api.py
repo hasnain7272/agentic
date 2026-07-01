@@ -9,7 +9,7 @@ import uuid
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, Request, status, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
@@ -266,6 +266,144 @@ async def delete_session(
     await db.commit()
     return {"deleted": True}
 
+@sessions_router.get("/{session_id}/config")
+async def get_session_config(
+    session_id: str,
+    user: TokenPayload = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(SessionModel).where(
+            SessionModel.id == session_id,
+            SessionModel.tenant_id == user.tenant_id,
+        )
+    )
+    session = result.scalar_one_or_none()
+    if not session:
+        raise HTTPException(404, "Session not found")
+        
+    t_result = await db.execute(select(TenantModel).where(TenantModel.id == user.tenant_id))
+    tenant = t_result.scalar_one_or_none()
+    
+    has_key = False
+    if tenant and tenant.settings:
+        configs = tenant.settings.get("byom_configs", [])
+        if configs and any(cfg.get("api_key") for cfg in configs):
+            has_key = True
+            
+    return {
+        "model": session.active_model_id or settings.default_model,
+        "api_key_masked": "********" if has_key else "",
+    }
+
+
+# =============================================================================
+# ROUTER: CHAT
+# =============================================================================
+
+chat_router = APIRouter(prefix="/chat", tags=["chat"])
+
+class ChatCreateRequest(BaseModel):
+    session_id: str
+    message: str
+    shadow_mode: Optional[bool] = False
+    active_model_id: Optional[str] = None
+
+@chat_router.post("/")
+async def create_chat_message(
+    req: ChatCreateRequest,
+    user: TokenPayload = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    # Verify session access
+    result = await db.execute(
+        select(SessionModel).where(
+            and_(SessionModel.id == req.session_id, SessionModel.tenant_id == user.tenant_id)
+        )
+    )
+    session = result.scalar_one_or_none()
+    if not session:
+        raise HTTPException(404, "Session not found")
+
+    # If the user passed active_model_id, update it on the session
+    if req.active_model_id:
+        session.active_model_id = req.active_model_id
+        db.add(session)
+        await db.flush()
+
+    # Create task
+    task = TaskModel(
+        tenant_id=user.tenant_id,
+        session_id=req.session_id,
+        description=req.message,
+        status="pending",
+    )
+    db.add(task)
+    await db.flush()
+
+    # Add the user's message to the database
+    from agentcore.database import add_message
+    await add_message(db, req.session_id, "user", req.message, task.id)
+    await db.commit()
+
+    return {"task_id": task.id}
+
+@chat_router.get("/{session_id}/history")
+async def get_chat_history(
+    session_id: str,
+    user: TokenPayload = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    # Verify session access
+    result = await db.execute(
+        select(SessionModel).where(
+            and_(SessionModel.id == session_id, SessionModel.tenant_id == user.tenant_id)
+        )
+    )
+    session = result.scalar_one_or_none()
+    if not session:
+        raise HTTPException(404, "Session not found")
+
+    # Retrieve history
+    msgs_result = await db.execute(
+        select(MessageModel).where(MessageModel.session_id == session_id)
+        .order_by(MessageModel.created_at)
+    )
+    messages = []
+    for m in msgs_result.scalars().all():
+        messages.append({
+            "id": m.id,
+            "role": m.role,
+            "content": m.content,
+            "created_at": m.created_at.isoformat() if m.created_at else datetime.utcnow().isoformat(),
+        })
+
+    return {"messages": messages}
+
+@chat_router.post("/{session_id}/approve")
+async def approve_chat_tool(
+    session_id: str,
+    req: Dict[str, Any],
+    user: TokenPayload = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    approval_id = req.get("message_id")
+    decision = req.get("decision")
+    result = await db.execute(
+        select(ApprovalModel).where(
+            ApprovalModel.id == approval_id,
+            ApprovalModel.tenant_id == user.tenant_id,
+        )
+    )
+    approval = result.scalar_one_or_none()
+    if not approval:
+        raise HTTPException(404, "Approval not found")
+    approval.status = "approved" if decision == "approved" else "rejected"
+    approval.approver_id = user.user_id
+    approval.approved_at = datetime.utcnow()
+    await db.commit()
+    return {"status": approval.status}
+
 
 # =============================================================================
 # ROUTER: TASKS
@@ -313,6 +451,64 @@ async def list_tasks(
             for t in result.scalars().all()
         ]
     }
+
+@tasks_router.websocket("/{task_id}/stream")
+async def ws_task_stream(
+    websocket: WebSocket,
+    task_id: str,
+    token: Optional[str] = Query(None),
+    tenant_id: Optional[str] = Query(None),
+):
+    from agentcore.websocket import _authenticate, manager
+    auth = _authenticate(token) if token else None
+    if not auth:
+        await websocket.close(code=4001, reason="Auth failed")
+        return
+
+    async for db in get_db():
+        result = await db.execute(
+            select(TaskModel).where(
+                and_(TaskModel.id == task_id, TaskModel.tenant_id == auth["tenant_id"])
+            )
+        )
+        task = result.scalar_one_or_none()
+        if not task:
+            await websocket.close(code=4004, reason="Task not found")
+            return
+        session_id = task.session_id
+        description = task.description
+        break
+
+    conn_id = f"agent-{session_id}-{auth['user_id']}"
+    await manager.connect(websocket, conn_id, {**auth, "session_id": session_id, "task_id": task_id})
+
+    try:
+        await manager.send(conn_id, {"type": "connected", "session_id": session_id, "task_id": task_id})
+
+        from agentcore.agent_loop import run_agent_stream
+        async for event in run_agent_stream(
+            session_id=session_id,
+            task_id=task_id,
+            user_message=description,
+            tenant_id=auth["tenant_id"],
+            user_id=auth["user_id"],
+            user_role=auth["role"],
+        ):
+            await manager.send(conn_id, event)
+            if event.get("type") in ("done", "error"):
+                break
+
+        while True:
+            data = await websocket.receive_json()
+            if data.get("type") == "ping":
+                await manager.send(conn_id, {"type": "pong"})
+
+    except WebSocketDisconnect:
+        manager.disconnect(conn_id)
+    except Exception as e:
+        logger.error(f"WS task stream error: {e}")
+        await manager.send(conn_id, {"type": "error", "error": str(e)})
+        manager.disconnect(conn_id)
 
 
 # =============================================================================
@@ -566,6 +762,7 @@ def create_app() -> FastAPI:
     app.include_router(governance_router, prefix=prefix)
     app.include_router(approvals_router, prefix=prefix)
     app.include_router(settings_router, prefix=prefix)
+    app.include_router(chat_router, prefix=prefix)
 
     # WebSocket routes
     from agentcore.websocket import router as ws_router
