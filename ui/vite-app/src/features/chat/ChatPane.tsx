@@ -41,9 +41,9 @@ export function ChatPane() {
           </div>
         ) : (
           <div className="mx-auto max-w-3xl space-y-4">
-            {chat.msgs.map((m, i) => (
+            {chat.msgs.map((m) => (
               <MessageBubble
-                key={i}
+                key={m.id ?? `${m.role}-${m.created_at ?? Date.now()}-${m.content?.slice(0, 50)}`}
                 {...m}
                 sessionId={chat.sessionId}
                 onApprove={chat.approve}
