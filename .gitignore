@@ -1,0 +1,495 @@
+# =============================================================================
+# PYTHON
+# =============================================================================
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# PyInstaller
+*.manifest
+*.spec
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+
+# Translations
+*.mo
+*.pot
+
+# Django/Flask/FastAPI stuff:
+*.log
+local_settings.py
+db.sqlite3
+db.sqlite3-journal
+instance/
+.webassets-cache
+
+# Scrapy stuff:
+.scrapy
+
+# Sphinx documentation
+docs/_build/
+
+# PyBuilder
+target/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# IPython
+profile_default/
+ipython_config.py
+
+# pyenv
+.python-version
+
+# pipenv
+Pipfile.lock
+
+# PEP 582
+__pypackages__/
+
+# Celery stuff
+celerybeat-schedule
+celerybeat.pid
+
+# SageMath parsed files
+*.sage.py
+
+# Environments
+.env
+.env.*
+.venv
+venv/
+ENV/
+env/
+env.bak/
+venv.bak/
+
+# Spyder project settings
+.spyderproject
+.spyproject
+
+# Rope project settings
+.ropeproject
+
+# mkdocs documentation
+/site
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Pyre type checker
+.pyre/
+
+# Pytype
+.pytype/
+
+# Cython debug symbols
+cython_debug/
+
+# =============================================================================
+# PYTHON VIRTUAL ENVIRONMENTS
+# =============================================================================
+
+# Virtualenv
+[Bb]in
+[Ii]nclude
+[Ll]ib
+[Ll]ib64
+[Ll]ocal
+[Ss]cripts
+pyvenv.cfg
+
+# Poetry
+poetry.lock
+
+# =============================================================================
+# NODE.JS / JAVASCRIPT / TYPESCRIPT
+# =============================================================================
+
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Package manager locks (keep yarn.lock for CI consistency)
+package-lock.json
+# yarn.lock
+pnpm-lock.yaml
+
+# Optional npm cache directory
+.npm
+
+# Optional eslint cache
+.eslintcache
+
+# Next.js build output
+.next/
+
+# Nuxt.js build output
+.nuxt/
+dist/
+
+# Vite build output
+dist-ssr/
+*.local
+
+# Rollup build output
+.rpt2_cache/
+.rts2_cache_cjs/
+.rts2_cache_es/
+.rts2_cache_umd/
+
+# Parcel build output
+.cache/
+.parcel-cache/
+
+# Gatsby files
+.cache/
+public
+
+# Vuepress build output
+.vuepress/dist
+
+# Serverless directories
+.serverless/
+
+# FuseBox cache
+.fusebox/
+
+# DynamoDB Local files
+.dynamodb/
+
+# TernJS port file
+.tern-port
+
+# Stores VSCode versions used for testing VSCode extensions
+.vscode-test
+
+# TypeScript cache
+*.tsbuildinfo
+
+# =============================================================================
+# IDE / EDITORS
+# =============================================================================
+
+# VS Code
+.vscode/
+!.vscode/extensions.json
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+
+# JetBrains (WebStorm, PyCharm, IntelliJ, etc.)
+.idea/
+*.iml
+*.iws
+*.ipr
+out/
+
+# Sublime Text
+*.sublime-project
+*.sublime-workspace
+
+# Vim
+*.swp
+*.swo
+*~
+
+# Emacs
+*~
+.#*
+
+# Eclipse
+.project
+.classpath
+.settings/
+
+# NetBeans
+nbproject/
+
+# Visual Studio
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Xcode
+*.pbxuser
+!default.pbxuser
+*.mode1v3
+!default.mode1v3
+*.mode2v3
+!default.mode2v3
+*.perspectivev3
+!default.perspectivev3
+xcuserdata/
+*.xccheckout
+*.moved-aside
+DerivedData/
+*.hmap
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+# =============================================================================
+# OPERATING SYSTEM FILES
+# =============================================================================
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon
+._*
+.DocumentRevisions-V100
+.fseventsd
+.Spotlight-V100
+.TemporaryItems
+.Trashes
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+.AppleDB
+.AppleDesktop
+Network Trash Folder
+Temporary Items
+.apdisk
+
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+*.stackdump
+[Dd]esktop.ini
+$RECYCLE.BIN/
+*.cab
+*.msi
+*.msix
+*.msm
+*.msp
+*.lnk
+
+# Linux
+*~
+.nfs*
+
+# =============================================================================
+# PROJECT SPECIFIC
+# =============================================================================
+
+# Databases
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+*.sqlite3-journal
+data/*.db
+
+# ChromaDB vector storage
+data/chroma_db/
+chroma_db/
+.chroma/
+
+# Log files
+*.log
+logs/
+log/
+
+# Local environment files
+.env.local
+.env.*.local
+
+# Session data
+data/sessions.db
+
+# MCP Registry (generated)
+data/mcp_registry.json
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.temp
+*.cache
+
+# Backup files
+*.bak
+*.backup
+
+# Test outputs
+test_output/
+test_results/
+coverage/
+
+# Build artifacts
+artifacts/
+build-output/
+
+# Workspace generated files
+workspace/
+!workspace/README.md
+
+# =============================================================================
+# SECURITY / SECRETS
+# =============================================================================
+
+# Secrets and credentials
+*.pem
+*.key
+*.crt
+*.cer
+*.der
+*.priv
+secrets.json
+credentials.json
+service-account.json
+google-credentials.json
+
+# API Keys and Tokens
+api-keys.json
+.tokens
+.token
+
+# SSH
+.ssh/
+*.ssh
+
+# =============================================================================
+# LLM / AI ASSISTANT FILES
+# =============================================================================
+
+.claude/
+.copilot/
+.gpt/
+.chatgpt/
+ai-context/
+.prompts/
+
+# =============================================================================
+# DOCKER
+# =============================================================================
+
+.dockerignore
+Dockerfile.*
+docker-compose.*.yml
+docker-compose.*.yaml
+.docker/
+
+# =============================================================================
+# DEPLOYMENT
+# =============================================================================
+
+# Vercel
+.vercel/
+
+# Netlify
+.netlify/
+
+# AWS
+.aws/
+
+# GCP
+gcloud/
+
+# Azure
+.azure/
+
+# Heroku
+.heroku/
+
+# =============================================================================
+# MISC
+# =============================================================================
+
+# Archives
+*.7z
+*.dmg
+*.gz
+*.iso
+*.jar
+*.rar
+*.tar
+*.zip
+
+# Compiled files
+*.com
+*.class
+*.dll
+*.exe
+*.o
+*.out
+
+# Debugging
+*.pid
+*.seed
+*.pid.lock
+
+# Profiling
+*.prof
+*.profdata
+
+# =============================================================================
+# KEEP THESE FILES (DO NOT IGNORE)
+# =============================================================================
+
+# Keep example environment files
+!.env.example
+!.env.template
+!.env.sample
+
+# Keep .gitkeep files to preserve empty directories
+!.gitkeep
+.runtime_secret.key
+
+# Local internal folders / clutters
+.kilo/
+scratch/
+
