@@ -122,8 +122,22 @@ class JWTManager:
             raise ValueError("JWT_SECRET must be set in production")
 
         if not self._secret:
-            self._secret = secrets.token_urlsafe(32)
-            logger.warning("Using generated JWT secret - not for production!")
+            import os
+            secret_file = ".runtime_secret.key"
+            if os.path.exists(secret_file):
+                try:
+                    with open(secret_file, "r") as f:
+                        self._secret = f.read().strip()
+                except Exception:
+                    pass
+            if not self._secret:
+                self._secret = secrets.token_urlsafe(32)
+                try:
+                    with open(secret_file, "w") as f:
+                        f.write(self._secret)
+                except Exception:
+                    pass
+            logger.warning("Using generated persistent JWT secret - not for production!")
 
     def create_access_token(
         self,
