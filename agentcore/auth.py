@@ -12,6 +12,7 @@ from functools import wraps
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from fastapi import Depends, FastAPI, HTTPException, Request, Response, status
+from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import APIKeyHeader, HTTPAuthorizationCredentials, HTTPBearer
