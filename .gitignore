@@ -18,7 +18,7 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
+/lib/
 lib64/
 parts/
 sdist/
@@ -136,12 +136,12 @@ cython_debug/
 # =============================================================================
 
 # Virtualenv
-[Bb]in
-[Ii]nclude
-[Ll]ib
-[Ll]ib64
-[Ll]ocal
-[Ss]cripts
+/[Bb]in
+/[Ii]nclude
+/[Ll]ib
+/[Ll]ib64
+/[Ll]ocal
+/[Ss]cripts
 pyvenv.cfg
 
 # Poetry
@@ -374,8 +374,8 @@ artifacts/
 build-output/
 
 # Workspace generated files
-workspace/
-!workspace/README.md
+/workspace/
+!/workspace/README.md
 
 # =============================================================================
 # SECURITY / SECRETS
