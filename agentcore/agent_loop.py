@@ -548,3 +548,22 @@ async def run_agent(
     agent = AgentLoop(llm_client=llm_client)
     async for event in agent.run(context, user_message):
         yield event
+
+
+async def run_agent_stream(
+    session_id: str,
+    task_id: str,
+    user_message: str,
+    tenant_id: str,
+    user_id: str,
+    user_role: str = "developer",
+    llm_client: Any = None,
+) -> AsyncGenerator[Dict[str, Any], None]:
+    """Convenience wrapper for WebSocket callers that pass individual fields."""
+    user = TokenPayload(
+        sub=user_id, user_id=user_id, tenant_id=tenant_id,
+        role=user_role, email="", organization_id=None,
+        exp=0, iat=0,
+    )
+    async for event in run_agent(session_id, task_id, user_message, user, llm_client):
+        yield event

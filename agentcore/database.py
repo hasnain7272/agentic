@@ -220,6 +220,23 @@ class MCPPluginModel(Base):
     __table_args__ = (Index("ix_mcp_tenant_name", "tenant_id", "name", unique=True),)
 
 
+class ApprovalModel(Base):
+    __tablename__ = "approvals"
+
+    id = Column(String(36), primary_key=True, default=lambda: f"appr-{uuid.uuid4().hex[:12]}")
+    tenant_id = Column(String(36), ForeignKey("tenants.id"), nullable=False, index=True)
+    requester_id = Column(String(36), nullable=False)
+    approver_id = Column(String(36), nullable=True)
+    action = Column(String(100), nullable=False)
+    resource = Column(String(500), nullable=True)
+    context = Column(JSON, default=dict)
+    reason = Column(Text, nullable=True)
+    status = Column(String(20), default="pending", index=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    expires_at = Column(DateTime, nullable=True)
+    approved_at = Column(DateTime, nullable=True)
+
+
 # Indexes
 Index("ix_sessions_tenant_user", SessionModel.tenant_id, SessionModel.user_id)
 Index("ix_tasks_session_status", TaskModel.session_id, TaskModel.status)
@@ -337,3 +354,53 @@ async def add_tool_call(
     db.add(tc)
     await db.commit()
     return tc
+
+
+async def update_tool_call(
+    db: AsyncSession,
+    tool_call_id: str,
+    status: str,
+    result: any = None,
+    error: str = None,
+) -> None:
+    from sqlalchemy import update
+    await db.execute(
+        update(ToolCallModel).where(ToolCallModel.id == tool_call_id).values(
+            status=status, result=str(result) if result else None, error=error,
+            completed_at=datetime.utcnow(),
+        )
+    )
+    await db.commit()
+
+
+async def create_session(
+    db: AsyncSession,
+    tenant_id: str,
+    user_id: str,
+    name: str = "New Session",
+    model: str = None,
+) -> SessionModel:
+    session = SessionModel(
+        tenant_id=tenant_id, user_id=user_id, name=name,
+        model=model or get_settings().default_model,
+    )
+    db.add(session)
+    await db.commit()
+    await db.refresh(session)
+    return session
+
+
+async def create_task(
+    db: AsyncSession,
+    tenant_id: str,
+    session_id: str,
+    description: str,
+) -> TaskModel:
+    task = TaskModel(
+        tenant_id=tenant_id, session_id=session_id,
+        description=description, status="pending",
+    )
+    db.add(task)
+    await db.commit()
+    await db.refresh(task)
+    return task
