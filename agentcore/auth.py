@@ -15,8 +15,8 @@ from fastapi import Depends, FastAPI, HTTPException, Request, Response, status
 from starlette.middleware.base import BaseHTTPMiddleware
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import APIKeyHeader, HTTPAuthorizationCredentials, HTTPBearer
+import bcrypt
 from jose import jwt, JWTError
-from passlib.context import CryptContext
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -24,9 +24,6 @@ from agentcore.config import get_settings
 from agentcore.database import get_db
 
 logger = logging.getLogger(__name__)
-
-# Password hashing
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 # Security schemes
 http_bearer = HTTPBearer(auto_error=False)
@@ -231,10 +228,13 @@ class JWTManager:
         )
 
     def hash_password(self, password: str) -> str:
-        return pwd_context.hash(password)
+        return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
 
     def verify_password(self, plain: str, hashed: str) -> bool:
-        return pwd_context.verify(plain, hashed)
+        try:
+            return bcrypt.checkpw(plain.encode("utf-8"), hashed.encode("utf-8"))
+        except Exception:
+            return False
 
     def _default_permissions(self, role: str) -> List[str]:
         perms = {

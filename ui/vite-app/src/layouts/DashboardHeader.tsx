@@ -1,28 +1,21 @@
 import { useState, useEffect } from 'react';
-import { Layers, FolderOpen, FileCode, Sparkles, Settings, LogOut } from 'lucide-react';
+import { Layers, Sparkles, Settings, LogOut } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { useSessionStore } from '@/store/sessionStore';
 import { apiClient } from '@/api/client';
 
 interface DashboardHeaderProps {
   onOpenDrawer: () => void;
-  onOpenWorkspaceModal: () => void;
-  showFileExplorer: boolean;
-  onToggleFileExplorer: () => void;
   onOpenCapabilityStudio: () => void;
   onOpenSettings: () => void;
 }
 
 export function DashboardHeader({
   onOpenDrawer,
-  onOpenWorkspaceModal,
-  showFileExplorer,
-  onToggleFileExplorer,
   onOpenCapabilityStudio,
   onOpenSettings
 }: DashboardHeaderProps) {
   const [tenantInfo, setTenantInfo] = useState<any>(null);
-  const workspaces = useSessionStore((s) => s.workspaces);
   const userEmail = useSessionStore((s) => s.userEmail);
 
   useEffect(() => {
@@ -58,28 +51,6 @@ export function DashboardHeader({
         
         <Badge variant="outline" className="hidden h-4 border-emerald-500/30 bg-emerald-500/5 px-1.5 font-mono text-[9px] tracking-tighter text-emerald-400 sm:inline-flex">v4.0.0-PROD</Badge>
         <div className="mx-1 hidden h-4 w-[1px] bg-slate-800/80 sm:block" />
-
-        <button
-          onClick={onOpenWorkspaceModal}
-          className="group flex min-w-0 flex-1 items-center gap-2 rounded-xl border border-slate-800/70 bg-slate-800/40 px-2.5 py-1.5 transition-all hover:border-slate-700/70 hover:bg-slate-800/70 sm:flex-none sm:gap-2.5 sm:px-3"
-        >
-          <FolderOpen className="h-4 w-4 shrink-0 text-blue-400 transition group-hover:scale-110" />
-          <span className="truncate text-[11px] font-bold uppercase tracking-wider text-slate-100">
-            {workspaces.length > 0 ? `Project: ${workspaces[0].slug || workspaces[0].path?.split('/').pop() || 'Workspace'}${workspaces.length > 1 ? ` (+${workspaces.length - 1})` : ''}` : 'Connect Project'}
-          </span>
-        </button>
-
-        <div className="mx-1 hidden h-4 w-[1px] bg-slate-800/80 md:block" />
-
-        <button
-          onClick={onToggleFileExplorer}
-          className={`hidden h-8 w-8 items-center justify-center rounded-lg transition-all md:flex ${
-            showFileExplorer ? 'bg-blue-500/20 text-blue-400 border border-blue-500/30' : 'text-slate-500 hover:bg-slate-800/70'
-          }`}
-          title="Toggle Sidebar Explorer"
-        >
-          <FileCode className="h-4 w-4" />
-        </button>
 
         <button
           onClick={onOpenCapabilityStudio}
