@@ -19,29 +19,29 @@ interface MessageBubbleProps {
 const ROLE_CONFIG = {
   user: {
     align: 'ml-auto flex-row-reverse',
-    bg: 'bg-gradient-to-br from-cyan-600/25 to-blue-600/15 backdrop-blur-sm border border-cyan-500/20 shadow-md shadow-cyan-950/15',
+    bg: 'bg-slate-900 border border-emerald-500/25',
     ring: '',
-    rounding: 'rounded-2xl rounded-tr-none',
-    text: 'text-cyan-50',
+    rounding: 'rounded-lg',
+    text: 'text-slate-100',
     icon: User,
-    iconColor: 'text-cyan-300 bg-cyan-950/80 border border-cyan-800/40 shadow-sm shadow-cyan-500/10',
+    iconColor: 'text-emerald-300 bg-slate-900 border border-emerald-800/40',
     label: 'You',
   },
   assistant: {
     align: 'mr-auto',
-    bg: 'bg-slate-900/35 backdrop-blur-sm border border-slate-800/60 shadow-sm shadow-slate-950/40',
+    bg: 'bg-slate-950 border border-slate-800',
     ring: '',
-    rounding: 'rounded-2xl rounded-tl-none',
+    rounding: 'rounded-lg',
     text: 'text-slate-100',
     icon: Bot,
-    iconColor: 'text-violet-300 bg-slate-900 border border-violet-800/30 shadow-sm shadow-violet-500/5',
+    iconColor: 'text-slate-300 bg-slate-900 border border-slate-800',
     label: 'Agent',
   },
   tool: {
     align: 'mr-auto',
-    bg: 'bg-slate-950/70 border border-slate-800/60 font-mono shadow-sm',
+    bg: 'bg-slate-950 border border-slate-800 font-mono',
     ring: '',
-    rounding: 'rounded-xl',
+    rounding: 'rounded-lg',
     text: 'text-amber-200/90',
     icon: Wrench,
     iconColor: 'text-amber-400 bg-slate-900 border border-amber-900/30',
@@ -49,9 +49,9 @@ const ROLE_CONFIG = {
   },
   system: {
     align: 'mx-auto',
-    bg: 'bg-slate-900/10 border border-slate-800/30 shadow-sm',
+    bg: 'bg-slate-950 border border-slate-800',
     ring: '',
-    rounding: 'rounded-xl',
+    rounding: 'rounded-lg',
     text: 'text-slate-400/80 text-xs',
     icon: Bot,
     iconColor: 'text-slate-500 bg-slate-900 border border-slate-800/20',
@@ -65,12 +65,12 @@ export function MessageBubble({ id, role, content, streaming, reasoning, tool_ca
 
   return (
     <div className={`group relative flex max-w-[88%] gap-3 items-start transition-all duration-200 ${config.align}`}>
-      <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-xl shadow-md ${config.iconColor}`}>
+      <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${config.iconColor}`}>
         <Icon className="h-4 w-4" />
       </div>
 
       <div className={`flex flex-col min-w-0 ${config.rounding} ${config.bg} px-4.5 py-3 ${config.text}`}>
-        <div className="flex items-center justify-between gap-4 mb-1 border-b border-slate-800/30 pb-0.5">
+        <div className="flex items-center justify-between gap-4 mb-1 border-b border-slate-800 pb-0.5">
           <span className="text-[10px] font-bold uppercase tracking-widest text-slate-500/80">{config.label}</span>
           {metadata?.timestamp && (
             <span className="text-[9px] text-slate-600/80 font-medium">

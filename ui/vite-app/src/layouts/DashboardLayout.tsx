@@ -20,7 +20,7 @@ export function DashboardLayout() {
   };
 
   return (
-    <div className="flex h-screen w-full flex-col bg-slate-950 overflow-hidden font-sans selection:bg-cyan-500/30">
+    <div className="flex h-screen w-full flex-col bg-slate-950 overflow-hidden font-sans selection:bg-emerald-500/30">
       <DashboardHeader
         onOpenDrawer={() => setDrawerOpen(true)}
         onOpenSettings={() => handleOpenSettings()}
@@ -35,9 +35,9 @@ export function DashboardLayout() {
         <PanelGroup direction="horizontal" autoSaveId="dashboard-layout">
           {showSidebar && (
             <>
-              <Panel defaultSize={22} minSize={18} maxSize={35} className="bg-[#0b1120] border-r border-slate-800 flex flex-col">
-                <div className="h-10 px-4 flex items-center border-b border-slate-800/60 bg-slate-900/10">
-                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+              <Panel defaultSize={22} minSize={18} maxSize={35} className="bg-slate-950 border-r border-slate-800 flex flex-col">
+                <div className="h-10 px-4 flex items-center border-b border-slate-800 bg-slate-950">
+                  <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest">
                     Active Sessions
                   </span>
                 </div>
@@ -45,11 +45,11 @@ export function DashboardLayout() {
                   <SessionSidebar onOpenSettings={handleOpenSettings} />
                 </div>
               </Panel>
-              <PanelResizeHandle className="w-[1.5px] bg-slate-800/80 hover:bg-cyan-500/50 transition-colors cursor-col-resize z-10" />
+              <PanelResizeHandle className="w-[1.5px] bg-slate-800 hover:bg-emerald-500/60 transition-colors cursor-col-resize z-10" />
             </>
           )}
 
-          <Panel defaultSize={78} minSize={50} className="flex flex-col bg-[#0b1120]/40 backdrop-blur-sm">
+          <Panel defaultSize={78} minSize={50} className="flex flex-col bg-slate-950">
             <ChatPane />
           </Panel>
         </PanelGroup>

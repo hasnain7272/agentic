@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Check, Copy, ExternalLink, Terminal } from 'lucide-react';
+import { getAuthToken } from '@/api/client';
 
 interface CopyButtonProps {
   text: string;
@@ -133,16 +134,24 @@ function renderTextAndAttachments(
   imageRegex: RegExp,
   sessionId?: string
 ): React.ReactNode {
+  const tokenParam = () => {
+    const token = getAuthToken();
+    return token ? `token=${encodeURIComponent(token)}` : '';
+  };
+
   const parts = text.split(combinedRegex);
   return parts.map((part, i) => {
     if (!part) return null;
 
     // Check for absolute path artifact
     if (part.match(imageRegex)) {
+      const query = new URLSearchParams({ path: part });
+      const token = getAuthToken();
+      if (token) query.set('token', token);
       return (
         <div key={i} className="my-3 overflow-hidden rounded-xl border border-slate-800/80 bg-slate-950/50 shadow-2xl">
           <img 
-            src={`/api/v1/workspace/artifacts?path=${encodeURIComponent(part)}`} 
+            src={`/api/v1/workspace/artifacts?${query.toString()}`} 
             alt="Tool Artifact" 
             className="max-h-96 w-full object-contain"
           />
@@ -158,7 +167,8 @@ function renderTextAndAttachments(
     if (attachmentMatch && sessionId) {
       const filename = attachmentMatch[1];
       const isVideo = /\.(mp4|mov|webm)$/i.test(filename);
-      const url = `/api/v1/workspace/sessions/${sessionId}/file/${encodeURIComponent(filename)}`;
+      const auth = tokenParam();
+      const url = `/api/v1/workspace/sessions/${sessionId}/file/${encodeURIComponent(filename)}${auth ? `?${auth}` : ''}`;
 
       return (
         <div key={i} className="my-3 overflow-hidden rounded-xl border border-cyan-500/20 bg-slate-950/50 shadow-xl">

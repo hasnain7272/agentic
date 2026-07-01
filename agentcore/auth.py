@@ -22,7 +22,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from agentcore.config import get_settings
-from agentcore.database import get_db
+from agentcore.database import get_db, get_db_manager
 
 logger = logging.getLogger(__name__)
 

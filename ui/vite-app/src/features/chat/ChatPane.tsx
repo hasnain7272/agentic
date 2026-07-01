@@ -25,12 +25,12 @@ export function ChatPane() {
   }, [chat]);
 
   return (
-    <div className="flex h-full flex-col bg-slate-950/20">
+    <div className="flex h-full flex-col bg-slate-950">
       <div className="flex-1 overflow-y-auto px-3 py-4 sm:px-4 md:px-8 lg:px-14 xl:px-20">
         {chat.msgs.length === 0 ? (
           <div className="flex h-full flex-col items-center justify-center gap-4 text-center">
-            <div className="rounded-2xl bg-cyan-500/10 p-5 ring-1 ring-cyan-400/20">
-              <Sparkles className="h-9 w-9 text-cyan-300/70" />
+            <div className="rounded-lg bg-slate-900 p-5 ring-1 ring-slate-800">
+              <Sparkles className="h-9 w-9 text-emerald-300/70" />
             </div>
             <div>
               <h3 className="text-base font-semibold text-slate-200">Ready for the next move</h3>
@@ -53,7 +53,7 @@ export function ChatPane() {
         )}
         <div ref={endRef} />
       </div>
-      <div className="border-t border-slate-800/60 bg-slate-900/50 px-2.5 py-2.5 sm:px-4 md:px-8 lg:px-14 xl:px-20">
+      <div className="border-t border-slate-800 bg-slate-950 px-2.5 py-2.5 sm:px-4 md:px-8 lg:px-14 xl:px-20">
         <div className="mx-auto max-w-3xl">
           <ChatComposer
             input={chat.input}
@@ -90,7 +90,7 @@ function ActivityRail({ items, streaming }: { items: ChatActivity[]; streaming: 
   return (
     <div className="mt-2 flex flex-wrap items-center justify-center gap-1.5">
       {(items.length ? items : [{ id: 'idle', kind: 'thinking', label: 'Starting backend', detail: 'Opening live stream.' } as ChatActivity]).map((item) => (
-        <div key={item.id} className="flex max-w-full items-center gap-1.5 rounded-full border border-slate-800 bg-slate-950/70 px-2.5 py-1 text-[10px] text-slate-400">
+        <div key={item.id} className="flex max-w-full items-center gap-1.5 rounded-md border border-slate-800 bg-slate-950 px-2.5 py-1 text-[10px] text-slate-400">
           <Icon kind={item.kind} />
           <span className="font-semibold text-slate-300">{item.label}</span>
           {item.detail && <span className="hidden max-w-[260px] truncate text-slate-500 sm:inline">{item.detail}</span>}

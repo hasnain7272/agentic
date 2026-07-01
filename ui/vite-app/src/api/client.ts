@@ -6,6 +6,7 @@ interface ApiResponse<T> {
   data?: T;
   error?: string;
   status: 'accepted' | 'success' | 'error';
+  httpStatus?: number;
 }
 
 export function getTenantId() {
@@ -60,11 +61,15 @@ async function request<T>(
       }
     }
 
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.detail || data.error || 'API Request Failed');
-    return { data, status: response.status === 202 ? 'accepted' : 'success' };
+    const text = await response.text();
+    const data = text ? JSON.parse(text) : null;
+    if (!response.ok) {
+      const detail = data?.detail || data?.error || `API request failed (${response.status})`;
+      throw new Error(Array.isArray(detail) ? detail.map((item) => item.msg || item.message || String(item)).join(', ') : detail);
+    }
+    return { data, status: response.status === 202 ? 'accepted' : 'success', httpStatus: response.status };
   } catch (e: any) {
-    return { error: e.message, status: 'error' };
+    return { error: e.message || 'Network request failed', status: 'error' };
   }
 }
 

@@ -15,6 +15,8 @@ const fromStorage = (sid: string): Msg[] => {
   catch { return []; }
 };
 
+const eventName = (data: any) => data?.type || data?.event || data?.event_type || '';
+
 export function useChatController() {
   const sid = useSessionStore((s) => s.sessionId);
   const tenantId = useSessionStore((s) => s.tenantId);
@@ -143,19 +145,22 @@ export function useChatController() {
       try {
         const data = JSON.parse(raw);
 
-        // Task complete — close cleanly
-        if (data.event_type === 'TASK_RESOLVED' || data.event === 'TASK_RESOLVED') {
+        const kind = eventName(data);
+
+        // Task complete - close cleanly
+        if (kind === 'TASK_RESOLVED' || kind === 'done') {
           pushActivity({ id: 'done', kind: 'done', label: 'Task resolved', detail: 'Final response saved to history.' });
           return ws.close();
         }
 
-        if (data.status === 'thinking') {
-          pushActivity({ id: 'thinking', kind: 'thinking', label: data.message || 'Thinking', detail: 'Backend accepted the task.' });
+        if (data.status === 'thinking' || kind === 'connected' || kind === 'state_change') {
+          const state = data.state ? String(data.state).replace(/_/g, ' ') : 'Thinking';
+          pushActivity({ id: 'thinking', kind: 'thinking', label: data.message || state, detail: kind === 'connected' ? 'Live backend stream opened.' : 'Backend accepted the task.' });
           return;
         }
 
         // Reasoning tokens (thinking/chain-of-thought)
-        if (data.event === 'reasoning') {
+        if (kind === 'reasoning') {
           reasoningBuffer += data.text;
           pushActivity({ id: 'reasoning', kind: 'thinking', label: 'Reasoning stream', detail: 'Model is planning the next step.' });
           scheduleFlush();
@@ -163,7 +168,7 @@ export function useChatController() {
         }
 
         // Content tokens
-        if (data.event === 'token') {
+        if (kind === 'token') {
           contentBuffer += data.text;
           const now = Date.now();
           if (now - lastTokenActivityAt > 500) {
@@ -174,32 +179,49 @@ export function useChatController() {
           return;
         }
 
+        if (kind === 'message') {
+          contentBuffer = data.content || data.text || contentBuffer;
+          scheduleFlush();
+          return;
+        }
+
         // Tool execution events
-        if (data.event === 'tool_start' || data.event === 'tool_executing') {
-          pushActivity({ id: `tool-${data.name}`, kind: 'tool', label: data.name || 'Tool running', detail: data.message || 'Governance approved, executing now.' });
+        if (kind === 'tool_call' || kind === 'tool_start' || kind === 'tool_executing') {
+          const name = data.tool || data.name || 'Tool running';
+          pushActivity({ id: `tool-${name}`, kind: 'tool', label: name, detail: data.message || 'Governance approved, executing now.' });
           setMsgs((p) => p.map((m, i) =>
             i === p.length - 1
-              ? { ...m, tool_calls: [...(m.tool_calls || []), { function: { name: data.name, arguments: data.args || '' }, status: 'running' }] }
+              ? { ...m, tool_calls: [...(m.tool_calls || []), { function: { name, arguments: data.arguments || data.args || '' }, status: 'running' }] }
               : m
           ));
           return;
         }
 
-        if (data.event === 'tool_progress') {
-          pushActivity({ id: `tool-${data.name}`, kind: 'tool', label: data.name || 'Tool progress', detail: `${data.progress ?? 0}% complete.` });
+        if (kind === 'tool_result' || kind === 'tool_progress') {
+          const name = data.tool || data.name || 'Tool result';
+          const detail = kind === 'tool_result'
+            ? (data.result?.success === false ? data.result?.error || 'Tool failed.' : 'Tool completed.')
+            : `${data.progress ?? 0}% complete.`;
+          pushActivity({ id: `tool-${name}`, kind: 'tool', label: name, detail });
           setMsgs((p) => p.map((m, i) =>
             i === p.length - 1
-              ? { ...m, tool_calls: m.tool_calls?.map(tc => tc.function?.name === data.name ? { ...tc, progress: data.progress } : tc) }
+              ? { ...m, tool_calls: m.tool_calls?.map(tc => tc.function?.name === name ? { ...tc, progress: data.progress, status: kind === 'tool_result' ? 'done' : tc.status } : tc) }
               : m
           ));
           return;
         }
 
-        if (data.event === 'tool_approval_required') {
-          pushActivity({ id: `approval-${data.name}`, kind: 'approval', label: 'Approval required', detail: data.name || 'A governed tool needs your decision.' });
+        if (kind === 'approval_required' || kind === 'tool_approval_required') {
+          pushActivity({ id: `approval-${data.tool || data.name}`, kind: 'approval', label: 'Approval required', detail: data.tool || data.name || 'A governed tool needs your decision.' });
           setStreaming(false);
           loadHistory(); // Fetch the message with metadata.status = 'NEEDS_APPROVAL'
           return;
+        }
+
+        if (kind === 'error') {
+          pushActivity({ id: 'error', kind: 'approval', label: 'Backend error', detail: data.error || 'Task failed.' });
+          addToast('error', data.error || 'Task failed.');
+          return ws.close();
         }
       } catch {
         // Non-JSON output — append to content as raw text

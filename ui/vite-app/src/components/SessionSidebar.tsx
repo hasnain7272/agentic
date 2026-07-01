@@ -23,13 +23,13 @@ export function SessionSidebar({ onOpenSettings }: SessionSidebarProps) {
   };
 
   return (
-    <div className="flex h-full flex-col bg-slate-950/40 text-slate-200">
+    <div className="flex h-full flex-col bg-slate-950 text-slate-200">
       {/* Search & Actions */}
-      <div className="space-y-3 p-4 border-b border-slate-800/50 bg-slate-900/10">
+      <div className="space-y-3 p-4 border-b border-slate-800 bg-slate-950">
         <button
           onClick={sessions.createSession}
           disabled={sessions.creating}
-          className="flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-cyan-600 to-blue-600 px-4 py-2.5 text-xs font-semibold text-white shadow-lg shadow-cyan-950/40 transition-all hover:from-cyan-500 hover:to-blue-500 hover:shadow-cyan-900/30 disabled:opacity-50 active:scale-[0.98]"
+          className="flex w-full items-center justify-center gap-2 rounded-md bg-emerald-600 px-4 py-2.5 text-xs font-semibold text-white transition hover:bg-emerald-500 disabled:opacity-50 active:scale-[0.98]"
         >
           {sessions.creating ? (
             <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -38,7 +38,7 @@ export function SessionSidebar({ onOpenSettings }: SessionSidebarProps) {
           )}
           New Session
         </button>
-        <label className="flex items-center gap-2 rounded-xl border border-slate-800 bg-slate-900/30 px-3 py-2 text-slate-500 focus-within:border-slate-700/80 transition-colors">
+        <label className="flex items-center gap-2 rounded-md border border-slate-800 bg-slate-900 px-3 py-2 text-slate-500 focus-within:border-slate-700/80 transition-colors">
           <Search className="h-3.5 w-3.5" />
           <input
             value={sessions.query}
@@ -67,12 +67,12 @@ export function SessionSidebar({ onOpenSettings }: SessionSidebarProps) {
                 onClick={() => !isDeleting && sessions.switchSession(session.id)}
                 className={`group relative flex w-full flex-col rounded-xl p-3 text-left transition-all duration-200 border cursor-pointer ${
                   active
-                    ? 'bg-slate-800/50 border-cyan-500/30 ring-1 ring-cyan-500/20'
+                    ? 'bg-slate-900 border-emerald-500/30 ring-1 ring-emerald-500/20'
                     : 'bg-transparent border-transparent hover:bg-slate-800/20 hover:border-slate-800/40'
                 }`}
               >
                 {active && (
-                  <div className="absolute left-0 top-3 bottom-3 w-1 rounded-r-full bg-cyan-500" />
+                  <div className="absolute left-0 top-3 bottom-3 w-1 rounded-r-full bg-emerald-500" />
                 )}
 
                 <div className="flex items-start justify-between gap-2">
@@ -125,7 +125,7 @@ export function SessionSidebar({ onOpenSettings }: SessionSidebarProps) {
                             e.stopPropagation();
                             onOpenSettings(session.id);
                           }}
-                          className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-800 hover:text-cyan-400 transition-colors"
+                          className="rounded-md p-1.5 text-slate-400 hover:bg-slate-800 hover:text-emerald-400 transition-colors"
                         >
                           <Settings className="h-3.5 w-3.5" />
                         </button>

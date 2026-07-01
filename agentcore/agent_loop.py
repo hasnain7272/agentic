@@ -18,7 +18,10 @@ from openai import AsyncOpenAI
 from agentcore.config import get_settings
 from agentcore.tools import get_tool_registry, get_tool_handler, get_all_tool_schemas
 from agentcore.governance import get_governance_engine, GovernanceApprovalRequiredError
-from agentcore.database import get_db, create_session, create_task, add_message, add_tool_call, update_tool_call
+from agentcore.database import (
+    get_db, create_session, create_task, add_message, add_tool_call,
+    update_tool_call, TaskModel, TaskStatus, MessageModel,
+)
 from agentcore.auth import TokenPayload
 
 logger = logging.getLogger(__name__)
@@ -243,6 +246,7 @@ Always explain your reasoning before taking actions."""
         await self._persist_message(context, "user", user_message)
 
         try:
+            await self._update_task(context, TaskStatus.running)
             while context.current_step < context.max_steps:
                 context.current_step += 1
 
@@ -272,23 +276,29 @@ Always explain your reasoning before taking actions."""
                         yield {"type": "message", "role": "assistant", "content": content}
                         # Task complete
                         context.state = AgentState.COMPLETED
+                        await self._update_task(context, TaskStatus.completed, result=content)
                         yield {"type": "state_change", "state": context.state.value}
                         yield {"type": "done", "result": "Task completed"}
                         return
                     elif event["type"] == "error":
+                        await self._update_task(context, TaskStatus.failed, error=event.get("error"))
                         yield event
                         return
 
             if context.current_step >= context.max_steps:
+                await self._update_task(context, TaskStatus.failed, error="Max steps reached")
                 yield {"type": "error", "error": "Max steps reached"}
+                return
 
             context.state = AgentState.COMPLETED
+            await self._update_task(context, TaskStatus.completed)
             yield {"type": "state_change", "state": context.state.value}
             yield {"type": "done", "result": "Task completed"}
 
         except Exception as e:
             logger.error(f"Agent loop error: {e}")
             context.state = AgentState.ERROR
+            await self._update_task(context, TaskStatus.failed, error=str(e))
             yield {"type": "state_change", "state": context.state.value}
             yield {"type": "error", "error": str(e)}
 
@@ -317,11 +327,11 @@ Always explain your reasoning before taking actions."""
             self.governance.assert_action_allowed(session_obj, tool_name, arguments)
         except GovernanceApprovalRequiredError as e:
             context.state = AgentState.WAITING_APPROVAL
+            await self._update_task(context, TaskStatus.needs_approval)
             yield {"type": "state_change", "state": context.state.value}
-            await add_tool_call(
-                await anext(get_db()), context.session_id, context.task_id,
-                tool_name, arguments, "pending_approval"
-            )
+            async for db in get_db():
+                await add_tool_call(db, context.session_id, context.task_id, tool_name, arguments, "pending_approval")
+                break
             yield {
                 "type": "approval_required",
                 "tool": tool_name,
@@ -352,17 +362,23 @@ Always explain your reasoning before taking actions."""
             "timestamp": datetime.utcnow().isoformat(),
         })
 
-        await add_tool_call(
-            await anext(get_db()), context.session_id, context.task_id,
-            tool_name, arguments, "completed" if result_data.get("success") else "failed",
-            result_data.get("data"), result_data.get("error")
-        )
+        async for db in get_db():
+            tool_success = result_data.get("success") if isinstance(result_data, dict) else False
+            await add_tool_call(
+                db, context.session_id, context.task_id,
+                tool_name, arguments, "completed" if tool_success else "failed",
+                result_data.get("data") if isinstance(result_data, dict) else result_data,
+                result_data.get("error") if isinstance(result_data, dict) else None,
+            )
+            break
 
         # Add result to conversation
         if isinstance(result_data, dict) and result_data.get("success"):
             content = result_data.get("data", "")
         else:
             content = result_data.get("error", "Tool failed") if isinstance(result_data, dict) else str(result_data)
+        if not isinstance(content, str):
+            content = json.dumps(content, default=str)
 
         context.messages.append({
             "role": "tool", "name": tool_name, "content": content,
@@ -373,10 +389,48 @@ Always explain your reasoning before taking actions."""
     async def _persist_message(self, context: AgentContext, role: str, content: str) -> None:
         try:
             async for db in get_db():
+                from sqlalchemy import select
+                existing = await db.execute(
+                    select(MessageModel.id).where(
+                        MessageModel.session_id == context.session_id,
+                        MessageModel.task_id == context.task_id,
+                        MessageModel.role == role,
+                        MessageModel.content == content,
+                    ).limit(1)
+                )
+                if existing.scalar_one_or_none():
+                    break
                 await add_message(db, context.session_id, role, content, context.task_id)
                 break
         except Exception as e:
             logger.error(f"Failed to persist message: {e}")
+
+    async def _update_task(
+        self,
+        context: AgentContext,
+        status: TaskStatus,
+        result: Optional[str] = None,
+        error: Optional[str] = None,
+    ) -> None:
+        try:
+            async for db in get_db():
+                task = await db.get(TaskModel, context.task_id)
+                if not task:
+                    break
+                task.status = status
+                if status == TaskStatus.running and not task.started_at:
+                    task.started_at = datetime.utcnow()
+                if status in {TaskStatus.completed, TaskStatus.failed, TaskStatus.cancelled}:
+                    task.completed_at = datetime.utcnow()
+                if result is not None:
+                    task.result = result
+                if error is not None:
+                    task.error = error
+                db.add(task)
+                await db.commit()
+                break
+        except Exception as e:
+            logger.error(f"Failed to update task state: {e}")
 
 
 # =============================================================================

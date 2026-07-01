@@ -7,11 +7,12 @@ import logging
 import secrets
 import uuid
 from datetime import datetime, timedelta
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, Request, status, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, FastAPI, File, HTTPException, Query, Request, UploadFile, status, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import select, and_, text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -60,6 +61,7 @@ class SessionCreateRequest(BaseModel):
     name: str = "New Session"
     model: str = ""
     system_prompt: str = ""
+    workspaces: List[Dict[str, Any]] = Field(default_factory=list)
 
 class TaskCreateRequest(BaseModel):
     session_id: str
@@ -77,6 +79,30 @@ class PolicyCheckRequest(BaseModel):
 class ApprovalDecision(BaseModel):
     approved: bool
     reason: Optional[str] = None
+
+
+def _workspace_slug(workspace: Dict[str, Any]) -> str:
+    raw = workspace.get("slug") or workspace.get("path") or workspace.get("url") or "workspace"
+    slug = "".join(ch.lower() if ch.isalnum() else "-" for ch in str(raw)).strip("-")
+    return (slug or "workspace")[:80]
+
+
+async def _get_owned_session(db: AsyncSession, session_id: str, user: TokenPayload) -> SessionModel:
+    result = await db.execute(
+        select(SessionModel).where(
+            SessionModel.id == session_id,
+            SessionModel.tenant_id == user.tenant_id,
+        )
+    )
+    session = result.scalar_one_or_none()
+    if not session:
+        raise HTTPException(404, "Session not found")
+    return session
+
+
+def _session_upload_dir(session_id: str) -> Path:
+    root = Path(settings.upload_dir).resolve()
+    return root / "sessions" / session_id
 
 
 # =============================================================================
@@ -173,10 +199,16 @@ async def get_me(
 ):
     result = await db.execute(select(UserModel).where(UserModel.id == user.user_id))
     db_user = result.scalar_one_or_none()
+    tenant = None
+    if db_user:
+        tenant_result = await db.execute(select(TenantModel).where(TenantModel.id == db_user.tenant_id))
+        tenant = tenant_result.scalar_one_or_none()
     return {
         "id": user.user_id, "email": db_user.email if db_user else user.email,
         "name": db_user.name if db_user else "User", "role": user.role,
         "tenant_id": user.tenant_id,
+        "cost_cents": tenant.cost_cents if tenant else 0,
+        "quota_usd": tenant.quota_usd if tenant else 0,
     }
 
 
@@ -195,12 +227,17 @@ async def create_session(
     session = SessionModel(
         tenant_id=user.tenant_id, user_id=user.user_id,
         title=req.name, active_model_id=req.model or settings.default_model,
-        system_prompt=req.system_prompt,
+        system_prompt=req.system_prompt, meta={"workspaces": req.workspaces or []},
     )
     db.add(session)
     await db.commit()
     await db.refresh(session)
-    return {"id": session.id, "name": session.name}
+    return {
+        "id": session.id,
+        "name": session.name,
+        "tenant_id": session.tenant_id,
+        "workspaces": session.meta.get("workspaces", []) if session.meta else [],
+    }
 
 @sessions_router.get("/")
 async def list_sessions(
@@ -214,7 +251,8 @@ async def list_sessions(
     )
     return {
         "sessions": [
-            {"id": s.id, "name": s.name, "model": s.model, "created_at": s.created_at.isoformat()}
+            {"id": s.id, "name": s.name, "model": s.model, "created_at": s.created_at.isoformat(),
+             "workspaces": (s.meta or {}).get("workspaces", [])}
             for s in result.scalars().all()
         ]
     }
@@ -241,6 +279,7 @@ async def get_session(
     )
     return {
         "id": session.id, "name": session.name, "model": session.model,
+        "workspaces": (session.meta or {}).get("workspaces", []),
         "messages": [
             {"id": m.id, "role": m.role, "content": m.content, "created_at": m.created_at.isoformat()}
             for m in msgs.scalars().all()
@@ -265,6 +304,44 @@ async def delete_session(
     await db.delete(session)
     await db.commit()
     return {"deleted": True}
+
+@sessions_router.post("/{session_id}/workspaces")
+async def add_session_workspace(
+    session_id: str,
+    req: Dict[str, Any],
+    user: TokenPayload = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    session = await _get_owned_session(db, session_id, user)
+    workspace = dict(req.get("workspace") or req)
+    if workspace.get("type") not in {"local", "git"}:
+        raise HTTPException(400, "Workspace type must be local or git")
+    workspace["slug"] = _workspace_slug(workspace)
+
+    meta = dict(session.meta or {})
+    workspaces = [ws for ws in meta.get("workspaces", []) if ws.get("slug") != workspace["slug"]]
+    workspaces.append(workspace)
+    meta["workspaces"] = workspaces
+    session.meta = meta
+    db.add(session)
+    await db.commit()
+    return {"workspaces": workspaces}
+
+@sessions_router.delete("/{session_id}/workspaces/{slug}")
+async def remove_session_workspace(
+    session_id: str,
+    slug: str,
+    user: TokenPayload = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    session = await _get_owned_session(db, session_id, user)
+    meta = dict(session.meta or {})
+    workspaces = [ws for ws in meta.get("workspaces", []) if ws.get("slug") != slug]
+    meta["workspaces"] = workspaces
+    session.meta = meta
+    db.add(session)
+    await db.commit()
+    return {"workspaces": workspaces}
 
 @sessions_router.get("/{session_id}/config")
 async def get_session_config(
@@ -479,7 +556,7 @@ async def ws_task_stream(
         description = task.description
         break
 
-    conn_id = f"agent-{session_id}-{auth['user_id']}"
+    conn_id = f"agent-{session_id}-{task_id}-{auth['user_id']}"
     await manager.connect(websocket, conn_id, {**auth, "session_id": session_id, "task_id": task_id})
 
     try:
@@ -727,6 +804,80 @@ async def save_byok_settings(
 
 
 # =============================================================================
+# ROUTER: WORKSPACE FILES
+# =============================================================================
+
+workspace_router = APIRouter(prefix="/workspace", tags=["workspace"])
+
+@workspace_router.post("/sessions/{session_id}/upload")
+async def upload_session_files(
+    session_id: str,
+    files: List[UploadFile] = File(...),
+    user: TokenPayload = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    session = await _get_owned_session(db, session_id, user)
+    target_dir = _session_upload_dir(session_id)
+    target_dir.mkdir(parents=True, exist_ok=True)
+
+    uploaded = []
+    for file in files:
+        filename = Path(file.filename or "upload.bin").name
+        if not filename:
+            raise HTTPException(400, "Invalid filename")
+        target = (target_dir / filename).resolve()
+        if target.parent != target_dir.resolve():
+            raise HTTPException(400, "Invalid upload path")
+
+        size = 0
+        with target.open("wb") as handle:
+            while chunk := await file.read(1024 * 1024):
+                size += len(chunk)
+                if size > settings.max_upload_size:
+                    target.unlink(missing_ok=True)
+                    raise HTTPException(413, f"{filename} exceeds upload limit")
+                handle.write(chunk)
+        uploaded.append({"name": filename, "size": size})
+
+    meta = dict(session.meta or {})
+    existing = {item.get("name"): item for item in meta.get("uploads", [])}
+    for item in uploaded:
+        existing[item["name"]] = item
+    meta["uploads"] = list(existing.values())
+    session.meta = meta
+    db.add(session)
+    await db.commit()
+    return {"files": uploaded}
+
+@workspace_router.get("/sessions/{session_id}/file/{filename}")
+async def get_session_file(
+    session_id: str,
+    filename: str,
+    user: TokenPayload = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    await _get_owned_session(db, session_id, user)
+    target_dir = _session_upload_dir(session_id).resolve()
+    target = (target_dir / Path(filename).name).resolve()
+    if target.parent != target_dir or not target.exists() or not target.is_file():
+        raise HTTPException(404, "File not found")
+    return FileResponse(target)
+
+@workspace_router.get("/artifacts")
+async def get_artifact(
+    path: str,
+    user: TokenPayload = Depends(get_current_user),
+):
+    candidate = Path(path).resolve()
+    allowed_roots = [Path.cwd().resolve(), Path(settings.upload_dir).resolve()]
+    if not any(candidate == root or root in candidate.parents for root in allowed_roots):
+        raise HTTPException(403, "Artifact path is outside allowed roots")
+    if not candidate.exists() or not candidate.is_file():
+        raise HTTPException(404, "Artifact not found")
+    return FileResponse(candidate)
+
+
+# =============================================================================
 # APP FACTORY
 # =============================================================================
 
@@ -762,6 +913,7 @@ def create_app() -> FastAPI:
     app.include_router(governance_router, prefix=prefix)
     app.include_router(approvals_router, prefix=prefix)
     app.include_router(settings_router, prefix=prefix)
+    app.include_router(workspace_router, prefix=prefix)
     app.include_router(chat_router, prefix=prefix)
 
     # WebSocket routes

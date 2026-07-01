@@ -90,7 +90,7 @@ async def ws_agent(
         await websocket.close(code=4001, reason="Auth failed")
         return
 
-    conn_id = f"agent-{session_id}-{auth['user_id']}"
+    conn_id = f"agent-{session_id}-{task_id}-{auth['user_id']}"
     await manager.connect(websocket, conn_id, {**auth, "session_id": session_id, "task_id": task_id})
 
     try:
