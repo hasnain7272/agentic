@@ -44,15 +44,6 @@ class Settings(BaseSettings):
     access_token_expire_minutes: int = 1440  # 24 hours
     refresh_token_expire_days: int = 30
 
-    # Sandbox
-    sandbox_type: str = "docker"  # docker, local
-    docker_image: str = "agentic/sandbox:latest"
-    docker_network: str = "agentic-network"
-    sandbox_cpu_limit: str = "1.0"
-    sandbox_memory_limit: str = "512m"
-    sandbox_timeout: int = 300
-    sandbox_workdir: str = "/workspace"
-
     # MCP
     mcp_enabled: bool = True
     mcp_stdio_timeout: int = 30
@@ -87,10 +78,6 @@ class Settings(BaseSettings):
     # WebSocket
     ws_heartbeat_interval: int = 30
     ws_max_message_size: int = 1024 * 1024  # 1MB
-
-    # File uploads
-    max_upload_size: int = 10 * 1024 * 1024  # 10MB
-    upload_dir: str = "./uploads"
 
     @property
     def is_production(self) -> bool:

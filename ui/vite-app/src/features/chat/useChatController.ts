@@ -5,14 +5,13 @@ import { useSessionStore } from '@/store/sessionStore';
 import { useTaskStore } from '@/store/taskStore';
 import type { ChatActivity, ModelOption, Msg } from '@/features/chat/types';
 
-/** Session-scoped localStorage key for chat messages. */
-const chatKey = (sid: string) => `ag-chat-${sid}`;
+// Type guard to check if we can send
+function canSendMessage(sid: string | null, streaming: boolean, modelOptions: ModelOption[]): boolean {
+  return Boolean(sid) && !streaming && modelOptions.length > 0;
+}
 
-const fromStorage = (sid: string): Msg[] => {
-  if (!sid) return [];
-  try { return JSON.parse(localStorage.getItem(chatKey(sid)) || '[]') as Msg[]; }
-  catch { return []; }
-};
+
+
 
 const eventName = (data: any) => data?.type || data?.event || data?.event_type || '';
 
@@ -26,7 +25,7 @@ export function useChatController() {
   const setActiveModelId = useSessionStore((s) => s.setActiveModelId);
 
   const [input, setInput] = useState('');
-  const [msgs, setMsgs] = useState<Msg[]>(() => fromStorage(sid));
+  const [msgs, setMsgs] = useState<Msg[]>([]);
   const [streaming, setStreaming] = useState(false);
 
   const [modelOptions, setModelOptions] = useState<ModelOption[]>([]);
@@ -34,10 +33,6 @@ export function useChatController() {
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const wsRef = useRef<WebSocket | null>(null);
 
-  /** Persist to session-scoped key */
-  useEffect(() => {
-    if (sid && msgs.length) localStorage.setItem(chatKey(sid), JSON.stringify(msgs));
-  }, [msgs, sid]);
 
   const loadHistory = useCallback(async () => {
     if (!sid) return;
@@ -67,8 +62,12 @@ export function useChatController() {
 
   /** Reload chat from storage when session changes, and sync with backend */
   useEffect(() => {
-    setMsgs(fromStorage(sid));
-    loadHistory();
+    if (sid) {
+      setMsgs([]);
+      loadHistory();
+    } else {
+      setMsgs([]);
+    }
     loadModels();
   }, [sid, loadHistory, loadModels]);
 
@@ -237,23 +236,19 @@ export function useChatController() {
   const send = async () => {
     if (!input.trim() || streaming) return;
     const text = input.trim();
+
+    // Require an active session - user must click "New Session" first
+    if (!sid) {
+      addToast('info', 'Please click "New Session" to start a conversation.');
+      return;
+    }
+
     setInput('');
     setMsgs((p) => [...p, { role: 'user', content: text }]);
 
-    let activeSid = sid;
-    if (!activeSid) {
-      const sRes = await apiClient.post<{ id: string }>('/sessions/', { mode: 'web' });
-      if (!sRes.data?.id) {
-        return addToast('error', sRes.error || 'Failed to auto-create session.');
-      }
-      activeSid = sRes.data.id;
-      useSessionStore.getState().setSessionId(activeSid);
-      window.dispatchEvent(new Event('refresh-sessions'));
-    }
-
     // Get active model from store
     const res = await apiClient.post<{ task_id: string }>('/chat/', {
-      session_id: activeSid,
+      session_id: sid,
       message: text,
       active_model_id: useSessionStore.getState().activeModelId || undefined
     });
@@ -264,17 +259,8 @@ export function useChatController() {
     streamTask(res.data.task_id);
   };
 
-  const upload = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file || !sid) return;
-    const body = new FormData();
-    body.append('files', file);
-    addToast('info', 'Uploading...');
-    const res = await apiClient.post(`/workspace/sessions/${sid}/upload`, body);
-    if (!res.data) return addToast('error', res.error || 'Upload failed');
-    addToast('success', 'File uploaded');
-    setMsgs((p) => [...p, { role: 'system', content: `Attached: ${file.name}` }]);
-    window.dispatchEvent(new Event('refresh-workspace'));
+  const upload = async (_event: React.ChangeEvent<HTMLInputElement>) => {
+    addToast('info', 'File uploads are not supported in database-only mode');
   };
 
   const approve = async (messageId: string, decision: 'approved' | 'denied') => {
@@ -287,7 +273,6 @@ export function useChatController() {
   };
 
   const reset = () => {
-    localStorage.removeItem(chatKey(sid));
     setMsgs([]);
   };
 

@@ -1,16 +1,22 @@
 import type { StateCreator } from 'zustand';
 import { apiClient } from '@/api/client';
-import type { SessionState } from './sessionTypes';
+import type { SessionState, SessionByokConfig } from './sessionTypes';
 
 export const createSessionActions: StateCreator<SessionState, [], [], Pick<SessionState,
-  'setSessionId' | 'setActiveModelId' | 'setUser' | 'setStatus' | 'setLlmConfig' | 'setLlmPreset' | 'initLlmFromStorage' | 'ensureSession' | 'reset'
+  'setSessionId' | 'setActiveModelId' | 'setUser' | 'setStatus' | 'setLlmConfig' | 'setLlmPreset' | 'initLlmFromStorage' | 'ensureSession' | 'reset' | 'setSessionByokConfig' | 'clearSessionByokConfig'
 >> = (set, get) => ({
-  setSessionId: (id) => set({ sessionId: id, status: 'active' }),
+  setSessionId: (id) => {
+    // Clear session-scoped BYOK config when switching to a new session
+    set({ sessionByokConfig: null });
+    set({ sessionId: id, status: 'active' });
+  },
   setActiveModelId: (id) => set({ activeModelId: id }),
   setUser: (email) => set({ userEmail: email }),
   setStatus: (status) => set({ status }),
   setLlmConfig: (config) => set((s) => ({ llmConfig: { ...s.llmConfig, ...config } })),
   setLlmPreset: (preset) => set({ llmPreset: preset }),
+  setSessionByokConfig: (config: SessionByokConfig | null) => set({ sessionByokConfig: config }),
+  clearSessionByokConfig: () => set({ sessionByokConfig: null }),
   initLlmFromStorage: () => {
     try {
       const raw = localStorage.getItem('llm_config');
@@ -33,8 +39,8 @@ export const createSessionActions: StateCreator<SessionState, [], [], Pick<Sessi
       return;
     }
 
-    // Default to session-less welcome screen
+    // Default to session-less welcome screen - session created only when user clicks "New Session"
     set({ status: 'active', sessionId: '' });
   },
-  reset: () => set({ sessionId: '', tenantId: '', userEmail: '', status: 'idle', llmConfig: { ...get().llmConfig, api_key: '' } }),
+  reset: () => set({ sessionId: '', tenantId: '', userEmail: '', status: 'idle', llmConfig: { ...get().llmConfig, api_key: '' }, sessionByokConfig: null }),
 });

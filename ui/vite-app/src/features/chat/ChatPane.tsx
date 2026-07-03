@@ -1,13 +1,19 @@
 import { useEffect, useRef } from 'react';
-import { Sparkles, Loader2 } from 'lucide-react';
+import { Sparkles, Loader2, Plus } from 'lucide-react';
 import { ChatComposer } from '@/features/chat/ChatComposer';
 import { MessageBubble } from '@/features/chat/MessageBubble';
 import { ActivityRail } from '@/features/chat/ActivityRail';
 import { useChatController } from '@/features/chat/useChatController';
+import { useSessionStore } from '@/store/sessionStore';
+import { useTaskStore } from '@/store/taskStore';
 
 export function ChatPane() {
   const endRef = useRef<HTMLDivElement>(null);
   const chat = useChatController();
+  const sessionId = useSessionStore((s) => s.sessionId);
+  const setSessionId = useSessionStore((s) => s.setSessionId);
+  const clearTasks = useTaskStore((s) => s.clearTasks);
+  const loadSessions = useSessionStore((s) => s.ensureSession);
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -24,11 +30,26 @@ export function ChatPane() {
     return () => window.removeEventListener('ag-insert-prompt', insert as EventListener);
   }, [chat]);
 
+  const hasSession = Boolean(sessionId);
+  const canSend = hasSession && chat.modelOptions.length > 0;
+
   return (
     <div className="flex h-full flex-col bg-[#0c0c0c]">
       <div className="flex-1 overflow-y-auto p-4 md:p-6 lg:p-8">
         <div className="mx-auto max-w-3xl space-y-5">
-          {chat.msgs.length === 0 ? (
+          {chat.msgs.length === 0 && !hasSession ? (
+            <div className="flex flex-col items-center justify-center h-full min-h-[300px] gap-3 text-center">
+              <div className="rounded-full bg-emerald-500/10 p-3">
+                <Sparkles className="h-7 w-7 text-emerald-500/70" />
+              </div>
+              <div>
+                <h3 className="text-sm font-medium text-slate-300">Welcome to Agentic</h3>
+                <p className="mt-1 text-[12px] text-slate-600 max-w-sm">
+                  Create a new session from the sidebar to start collaborating with the agent swarm.
+                </p>
+              </div>
+            </div>
+          ) : chat.msgs.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-full min-h-[300px] gap-3 text-center">
               <div className="rounded-full bg-emerald-500/10 p-3">
                 <Sparkles className="h-7 w-7 text-emerald-500/70" />
@@ -36,7 +57,7 @@ export function ChatPane() {
               <div>
                 <h3 className="text-sm font-medium text-slate-300">Start a session</h3>
                 <p className="mt-1 text-[12px] text-slate-600 max-w-sm">
-                  Type a message to begin. The agent can read, write, run, search, and reason across your workspace.
+                  Type a message to begin. The agent can search the web, run analysis, store memories, and integrate with external tools.
                 </p>
               </div>
             </div>
@@ -71,8 +92,9 @@ export function ChatPane() {
             activeModelId={chat.activeModelId}
             inputRef={chat.inputRef}
             onInput={chat.setInput}
-            onSend={chat.send}
+            onSend={canSend ? chat.send : undefined}
             onModelSelect={chat.setActiveModelId}
+            disabled={!canSend}
           />
         </div>
       </div>

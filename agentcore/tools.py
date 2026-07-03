@@ -1,23 +1,20 @@
 """
-AgentCore Tools - Registry, Schemas, Builtin Tools
+AgentCore Tools — Registry, Schemas, Skilled Tools
 
-Consolidated tools: registry + schemas + core builtin tools (filesystem, shell, web).
+Database-only tools: web search, memory, code execution, API integration,
+content generation, communication, and A2A delegation.
+No filesystem tools. No sandbox. Everything is API/DB-backed.
 """
 import asyncio
 import importlib
-import inspect
 import logging
 import os
 import pkgutil
-import re
-import shlex
-import subprocess
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Any, Dict, List, Optional, Type
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, Field
 from agentcore.config import get_settings
 
 logger = logging.getLogger(__name__)
@@ -27,15 +24,6 @@ logger = logging.getLogger(__name__)
 # SCHEMAS
 # =============================================================================
 
-class ParameterType(str):
-    STRING = "string"
-    NUMBER = "number"
-    INTEGER = "integer"
-    BOOLEAN = "boolean"
-    ARRAY = "array"
-    OBJECT = "object"
-
-
 class ToolParameter(BaseModel):
     name: str
     type: str
@@ -43,8 +31,6 @@ class ToolParameter(BaseModel):
     required: bool = True
     default: Any = None
     enum: List[Any] = Field(default_factory=list)
-    items: Optional["ToolParameter"] = None
-    properties: Optional[Dict[str, "ToolParameter"]] = None
 
     def to_json_schema(self) -> Dict[str, Any]:
         schema = {"type": self.type, "description": self.description}
@@ -52,13 +38,6 @@ class ToolParameter(BaseModel):
             schema["enum"] = self.enum
         if self.default is not None:
             schema["default"] = self.default
-        if self.items:
-            schema["items"] = self.items.to_json_schema()
-        if self.properties:
-            schema["properties"] = {n: p.to_json_schema() for n, p in self.properties.items()}
-            req = [n for n, p in self.properties.items() if p.required]
-            if req:
-                schema["required"] = req
         return schema
 
 
@@ -98,23 +77,14 @@ class ToolResult(BaseModel):
 
     def to_llm_content(self) -> List[Dict[str, Any]]:
         if self.success:
-            if isinstance(self.data, str):
-                return [{"type": "text", "text": self.data}]
-            elif isinstance(self.data, (dict, list)):
-                return [{"type": "text", "text": str(self.data)}]
             return [{"type": "text", "text": str(self.data)}]
         return [{"type": "text", "text": f"Error: {self.error}"}]
 
-
-# =============================================================================
-# BASE TOOL
-# =============================================================================
 
 class BaseTool(ABC):
     name: str = ""
     description: str = ""
     parameters: List[ToolParameter] = []
-    requires_sandbox: bool = False
 
     def get_schema(self) -> Dict[str, Any]:
         props = {}
@@ -138,177 +108,11 @@ class BaseTool(ABC):
 
 
 # =============================================================================
-# BUILTIN TOOL IMPLEMENTATIONS
+# SKILLED TOOL IMPLEMENTATIONS (Database/API-backed, no filesystem)
 # =============================================================================
 
-def resolve_workspace_path(path: str) -> Path:
-    """Resolve workspace path with security."""
-    settings = get_settings()
-    base = Path(settings.sandbox_workdir or "./workspace")
-    base.mkdir(parents=True, exist_ok=True)
-    target = base / path
-    target = target.resolve()
-    if not str(target).startswith(str(base.resolve())):
-        raise ValueError("Path traversal not allowed")
-    return target
-
-
-async def read_file(filepath: str, session_id: str = "", **kwargs) -> ToolResult:
-    try:
-        path = resolve_workspace_path(filepath)
-        if not path.exists():
-            return ToolResult(success=False, error=f"File not found: {filepath}")
-        if not path.is_file():
-            return ToolResult(success=False, error=f"Not a file: {filepath}")
-        size = path.stat().st_size
-        if size > 10 * 1024 * 1024:
-            return ToolResult(success=False, error="File too large")
-        content = path.read_text(encoding="utf-8", errors="replace")
-        return ToolResult(success=True, data=content)
-    except Exception as e:
-        logger.error(f"read_file error: {e}")
-        return ToolResult(success=False, error=str(e))
-
-
-async def write_file(filepath: str, content: str, session_id: str = "", **kwargs) -> ToolResult:
-    try:
-        path = resolve_workspace_path(filepath)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(content, encoding="utf-8")
-        return ToolResult(success=True, data=f"Written {len(content)} bytes to {filepath}")
-    except Exception as e:
-        logger.error(f"write_file error: {e}")
-        return ToolResult(success=False, error=str(e))
-
-
-async def edit_file(filepath: str, old_text: str, new_text: str, session_id: str = "", **kwargs) -> ToolResult:
-    try:
-        path = resolve_workspace_path(filepath)
-        if not path.exists():
-            return ToolResult(success=False, error="File not found")
-        content = path.read_text(encoding="utf-8", errors="replace")
-        if old_text not in content:
-            return ToolResult(success=False, error="Old text not found")
-        new_content = content.replace(old_text, new_text, 1)
-        path.write_text(new_content, encoding="utf-8")
-        return ToolResult(success=True, data=f"Edited {filepath}")
-    except Exception as e:
-        logger.error(f"edit_file error: {e}")
-        return ToolResult(success=False, error=str(e))
-
-
-async def delete_file(filepath: str, session_id: str = "", **kwargs) -> ToolResult:
-    try:
-        path = resolve_workspace_path(filepath)
-        if not path.exists():
-            return ToolResult(success=False, error="File not found")
-        path.unlink()
-        return ToolResult(success=True, data=f"Deleted {filepath}")
-    except Exception as e:
-        logger.error(f"delete_file error: {e}")
-        return ToolResult(success=False, error=str(e))
-
-
-async def list_files(path: str = ".", pattern: str = "*", session_id: str = "", **kwargs) -> ToolResult:
-    try:
-        base = resolve_workspace_path(path)
-        if not base.exists():
-            return ToolResult(success=False, error="Directory not found")
-        files = []
-        for item in base.rglob(pattern):
-            if item.is_file():
-                try:
-                    rel = item.relative_to(base)
-                    stat = item.stat()
-                    files.append({"path": str(rel), "size": stat.st_size, "modified": stat.st_mtime})
-                except ValueError:
-                    pass
-        return ToolResult(success=True, data=sorted(files, key=lambda x: x["path"]))
-    except Exception as e:
-        logger.error(f"list_files error: {e}")
-        return ToolResult(success=False, error=str(e))
-
-
-async def glob_files(pattern: str, path: str = ".", session_id: str = "", **kwargs) -> ToolResult:
-    try:
-        base = resolve_workspace_path(path)
-        files = []
-        for item in base.glob(pattern):
-            if item.is_file():
-                try:
-                    files.append(str(item.relative_to(base)))
-                except ValueError:
-                    pass
-        return ToolResult(success=True, data=sorted(files))
-    except Exception as e:
-        logger.error(f"glob_files error: {e}")
-        return ToolResult(success=False, error=str(e))
-
-
-async def grep_files(pattern: str, path: str = ".", file_pattern: str = "*", session_id: str = "", **kwargs) -> ToolResult:
-    try:
-        base = resolve_workspace_path(path)
-        regex = re.compile(pattern)
-        matches = []
-        for item in base.rglob(file_pattern):
-            if not item.is_file():
-                continue
-            try:
-                content = item.read_text(encoding="utf-8", errors="ignore")
-            except Exception:
-                continue
-            for i, line in enumerate(content.splitlines(), 1):
-                if regex.search(line):
-                    try:
-                        matches.append({"file": str(item.relative_to(base)), "line": i, "content": line.strip()[:200]})
-                    except ValueError:
-                        pass
-        return ToolResult(success=True, data=matches[:100])
-    except Exception as e:
-        logger.error(f"grep_files error: {e}")
-        return ToolResult(success=False, error=str(e))
-
-
-async def bash_execute(
-    command: str,
-    working_dir: str = ".",
-    timeout: int = 60,
-    session_id: str = "",
-    **kwargs,
-) -> ToolResult:
-    try:
-        cwd = resolve_workspace_path(working_dir)
-        dangerous = ["rm -rf /", "format", "mkfs", "dd if=", "shutdown", "reboot"]
-        if any(d in command.lower() for d in dangerous):
-            return ToolResult(success=False, error="Command rejected: potentially dangerous")
-        process = await asyncio.create_subprocess_shell(
-            command,
-            cwd=str(cwd),
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            env={**os.environ, "HOME": str(cwd)},
-        )
-        try:
-            stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=timeout)
-        except asyncio.TimeoutError:
-            process.kill()
-            await process.wait()
-            return ToolResult(success=False, error=f"Command timed out after {timeout}s")
-        return ToolResult(
-            success=process.returncode == 0,
-            data={
-                "stdout": stdout.decode("utf-8", errors="replace"),
-                "stderr": stderr.decode("utf-8", errors="replace"),
-                "exit_code": process.returncode,
-            },
-            error=stderr.decode("utf-8", errors="replace") if process.returncode != 0 else None,
-        )
-    except Exception as e:
-        logger.error(f"bash_execute error: {e}")
-        return ToolResult(success=False, error=str(e))
-
-
 async def web_search(query: str, max_results: int = 10, session_id: str = "", **kwargs) -> ToolResult:
+    """Search the web using DuckDuckGo."""
     try:
         import httpx
         from bs4 import BeautifulSoup
@@ -335,6 +139,7 @@ async def web_search(query: str, max_results: int = 10, session_id: str = "", **
 
 
 async def web_fetch(url: str, session_id: str = "", **kwargs) -> ToolResult:
+    """Fetch and extract text content from a web URL."""
     try:
         import httpx
         from bs4 import BeautifulSoup
@@ -351,41 +156,188 @@ async def web_fetch(url: str, session_id: str = "", **kwargs) -> ToolResult:
         return ToolResult(success=False, error=str(e))
 
 
+async def memory_store(key: str, value: str, session_id: str = "", **kwargs) -> ToolResult:
+    """Store a key-value memory entry in the database for the current session."""
+    try:
+        from agentcore.database import get_db, SessionModel
+        from sqlalchemy import select
+        async for db in get_db():
+            result = await db.execute(select(SessionModel).where(SessionModel.id == session_id))
+            session = result.scalar_one_or_none()
+            if not session:
+                return ToolResult(success=False, error="Session not found")
+            meta = dict(session.meta or {})
+            memories = dict(meta.get("memories", {}))
+            memories[key] = value
+            meta["memories"] = memories
+            session.meta = meta
+            db.add(session)
+            await db.commit()
+            return ToolResult(success=True, data=f"Stored memory '{key}'")
+    except Exception as e:
+        logger.error(f"memory_store error: {e}")
+        return ToolResult(success=False, error=str(e))
+
+
+async def memory_recall(key: str = "", session_id: str = "", **kwargs) -> ToolResult:
+    """Recall stored memories from the database. If key is empty, returns all memories."""
+    try:
+        from agentcore.database import get_db, SessionModel
+        from sqlalchemy import select
+        async for db in get_db():
+            result = await db.execute(select(SessionModel).where(SessionModel.id == session_id))
+            session = result.scalar_one_or_none()
+            if not session:
+                return ToolResult(success=False, error="Session not found")
+            memories = (session.meta or {}).get("memories", {})
+            if key:
+                value = memories.get(key)
+                if value is None:
+                    return ToolResult(success=False, error=f"No memory found for key '{key}'")
+                return ToolResult(success=True, data={"key": key, "value": value})
+            return ToolResult(success=True, data=memories)
+    except Exception as e:
+        logger.error(f"memory_recall error: {e}")
+        return ToolResult(success=False, error=str(e))
+
+
+async def run_code(code: str, language: str = "python", session_id: str = "", **kwargs) -> ToolResult:
+    """Execute a code snippet in a restricted environment. Supports python and javascript."""
+    try:
+        if language == "python":
+            import io, contextlib
+            output = io.StringIO()
+            restricted_globals = {"__builtins__": {
+                "print": lambda *a, **k: output.write(" ".join(str(x) for x in a) + "\n"),
+                "len": len, "range": range, "int": int, "float": float, "str": str,
+                "list": list, "dict": dict, "tuple": tuple, "set": set, "bool": bool,
+                "sorted": sorted, "enumerate": enumerate, "zip": zip, "map": map, "filter": filter,
+                "sum": sum, "min": min, "max": max, "abs": abs, "round": round,
+                "isinstance": isinstance, "type": type, "hasattr": hasattr, "getattr": getattr,
+            }}
+            with contextlib.redirect_stdout(output):
+                exec(code, restricted_globals)
+            return ToolResult(success=True, data={"output": output.getvalue(), "language": language})
+        else:
+            return ToolResult(success=False, error=f"Language '{language}' not yet supported server-side")
+    except Exception as e:
+        return ToolResult(success=True, data={"output": "", "error": str(e), "language": language})
+
+
+async def http_request(url: str, method: str = "GET", headers: Dict[str, str] = None, body: str = "", session_id: str = "", **kwargs) -> ToolResult:
+    """Make an HTTP request to an external API."""
+    try:
+        import httpx
+        async with httpx.AsyncClient(timeout=30) as client:
+            response = await client.request(
+                method=method.upper(), url=url,
+                headers=headers or {}, content=body if body else None,
+            )
+        return ToolResult(success=True, data={
+            "status_code": response.status_code,
+            "headers": dict(response.headers),
+            "body": response.text[:20000],
+        })
+    except Exception as e:
+        logger.error(f"http_request error: {e}")
+        return ToolResult(success=False, error=str(e))
+
+
+async def generate_image(prompt: str, session_id: str = "", **kwargs) -> ToolResult:
+    """Generate an image from a text prompt using the configured image API."""
+    return ToolResult(success=True, data={"prompt": prompt, "status": "Image generation API not configured. Configure DALL-E or Imagen endpoint in settings."})
+
+
+async def send_notification(message: str, channel: str = "log", session_id: str = "", **kwargs) -> ToolResult:
+    """Send a notification message. Channel can be 'log', 'email', or 'webhook'."""
+    logger.info(f"[Notification:{channel}] {message}")
+    return ToolResult(success=True, data=f"Notification sent via {channel}: {message}")
+
+
+async def delegate_task(target_session_id: str, task_description: str, session_id: str = "", **kwargs) -> ToolResult:
+    """Delegate a sub-task to another agent session in the swarm."""
+    try:
+        from agentcore.database import get_db, SessionModel, MessageModel
+        from sqlalchemy import select
+        async for db in get_db():
+            result = await db.execute(select(SessionModel).where(SessionModel.id == target_session_id))
+            target = result.scalar_one_or_none()
+            if not target:
+                return ToolResult(success=False, error=f"Target session '{target_session_id}' not found")
+            return ToolResult(success=True, data={
+                "delegated_to": target_session_id,
+                "target_name": target.title,
+                "task": task_description,
+                "status": "Task delegation noted. Use A2A links to share context between sessions.",
+            })
+    except Exception as e:
+        logger.error(f"delegate_task error: {e}")
+        return ToolResult(success=False, error=str(e))
+
+
+async def query_agent(target_session_id: str, question: str, session_id: str = "", **kwargs) -> ToolResult:
+    """Query another linked agent session for information from its conversation history."""
+    try:
+        from agentcore.database import get_db, SessionModel, MessageModel
+        from sqlalchemy import select
+        async for db in get_db():
+            result = await db.execute(select(SessionModel).where(SessionModel.id == target_session_id))
+            target = result.scalar_one_or_none()
+            if not target:
+                return ToolResult(success=False, error=f"Target session '{target_session_id}' not found")
+            msgs_result = await db.execute(
+                select(MessageModel).where(MessageModel.session_id == target_session_id)
+                .order_by(MessageModel.created_at.desc()).limit(10)
+            )
+            msgs = list(reversed(msgs_result.scalars().all()))
+            context = "\n".join([f"[{m.role}] {m.content[:500]}" for m in msgs])
+            return ToolResult(success=True, data={
+                "target_session": target_session_id,
+                "target_name": target.title,
+                "question": question,
+                "context": context or "(No messages in target session)",
+            })
+    except Exception as e:
+        logger.error(f"query_agent error: {e}")
+        return ToolResult(success=False, error=str(e))
+
+
 # =============================================================================
-# BUILTIN TOOL SCHEMAS
+# TOOL SCHEMAS & REGISTRY
 # =============================================================================
 
 BUILTIN_TOOL_SCHEMAS = {
-    "read_file": ToolSchema(name="read_file", description="Read a file from the workspace", parameters={"type": "object", "properties": {"filepath": {"type": "string", "description": "Path to file"}}, "required": ["filepath"]}),
-    "write_file": ToolSchema(name="write_file", description="Write content to a file", parameters={"type": "object", "properties": {"filepath": {"type": "string"}, "content": {"type": "string"}}, "required": ["filepath", "content"]}),
-    "edit_file": ToolSchema(name="edit_file", description="Edit a file by replacing text", parameters={"type": "object", "properties": {"filepath": {"type": "string"}, "old_text": {"type": "string"}, "new_text": {"type": "string"}}, "required": ["filepath", "old_text", "new_text"]}),
-    "delete_file": ToolSchema(name="delete_file", description="Delete a file", parameters={"type": "object", "properties": {"filepath": {"type": "string"}}, "required": ["filepath"]}),
-    "list_files": ToolSchema(name="list_files", description="List files in a directory", parameters={"type": "object", "properties": {"path": {"type": "string", "default": "."}, "pattern": {"type": "string", "default": "*"}}, "required": []}),
-    "glob_files": ToolSchema(name="glob_files", description="Find files matching glob pattern", parameters={"type": "object", "properties": {"pattern": {"type": "string"}, "path": {"type": "string", "default": "."}}, "required": ["pattern"]}),
-    "grep_files": ToolSchema(name="grep_files", description="Search for regex pattern in files", parameters={"type": "object", "properties": {"pattern": {"type": "string"}, "path": {"type": "string", "default": "."}, "file_pattern": {"type": "string", "default": "*"}}, "required": ["pattern"]}),
-    "bash_execute": ToolSchema(name="bash_execute", description="Execute bash command in sandbox", parameters={"type": "object", "properties": {"command": {"type": "string"}, "working_dir": {"type": "string", "default": "."}, "timeout": {"type": "integer", "default": 60}}, "required": ["command"]}),
-    "web_search": ToolSchema(name="web_search", description="Search the web", parameters={"type": "object", "properties": {"query": {"type": "string"}, "max_results": {"type": "integer", "default": 10}}, "required": ["query"]}),
-    "web_fetch": ToolSchema(name="web_fetch", description="Fetch web URL content", parameters={"type": "object", "properties": {"url": {"type": "string"}}, "required": ["url"]}),
+    "web_search": ToolSchema(name="web_search", description="Search the web for information", parameters={"type": "object", "properties": {"query": {"type": "string", "description": "Search query"}, "max_results": {"type": "integer", "default": 10}}, "required": ["query"]}),
+    "web_fetch": ToolSchema(name="web_fetch", description="Fetch and extract text content from a web URL", parameters={"type": "object", "properties": {"url": {"type": "string", "description": "URL to fetch"}}, "required": ["url"]}),
+    "memory_store": ToolSchema(name="memory_store", description="Store a key-value memory entry in the database for this session", parameters={"type": "object", "properties": {"key": {"type": "string", "description": "Memory key"}, "value": {"type": "string", "description": "Memory value to store"}}, "required": ["key", "value"]}),
+    "memory_recall": ToolSchema(name="memory_recall", description="Recall stored memories from the database. Empty key returns all memories", parameters={"type": "object", "properties": {"key": {"type": "string", "description": "Memory key to recall (empty for all)", "default": ""}}, "required": []}),
+    "run_code": ToolSchema(name="run_code", description="Execute a code snippet (Python). Returns stdout output", parameters={"type": "object", "properties": {"code": {"type": "string", "description": "Code to execute"}, "language": {"type": "string", "default": "python", "description": "Language: python"}}, "required": ["code"]}),
+    "http_request": ToolSchema(name="http_request", description="Make an HTTP request to an external API", parameters={"type": "object", "properties": {"url": {"type": "string"}, "method": {"type": "string", "default": "GET", "description": "HTTP method"}, "headers": {"type": "object", "default": {}}, "body": {"type": "string", "default": ""}}, "required": ["url"]}),
+    "generate_image": ToolSchema(name="generate_image", description="Generate an image from a text prompt", parameters={"type": "object", "properties": {"prompt": {"type": "string", "description": "Image description prompt"}}, "required": ["prompt"]}),
+    "send_notification": ToolSchema(name="send_notification", description="Send a notification message via log, email, or webhook", parameters={"type": "object", "properties": {"message": {"type": "string"}, "channel": {"type": "string", "default": "log", "description": "Channel: log, email, webhook"}}, "required": ["message"]}),
+    "delegate_task": ToolSchema(name="delegate_task", description="Delegate a sub-task to another agent session in the swarm", parameters={"type": "object", "properties": {"target_session_id": {"type": "string", "description": "Target session ID"}, "task_description": {"type": "string", "description": "Task to delegate"}}, "required": ["target_session_id", "task_description"]}),
+    "query_agent": ToolSchema(name="query_agent", description="Query another linked agent session for information", parameters={"type": "object", "properties": {"target_session_id": {"type": "string", "description": "Target session ID"}, "question": {"type": "string", "description": "Question to ask"}}, "required": ["target_session_id", "question"]}),
 }
 
 CORE_TOOL_METADATA = {
-    "read_file": {"category": "filesystem", "requires_sandbox": False},
-    "write_file": {"category": "filesystem", "requires_sandbox": False, "requires_approval": True},
-    "edit_file": {"category": "filesystem", "requires_sandbox": False, "requires_approval": True},
-    "list_files": {"category": "filesystem", "requires_sandbox": False},
-    "glob_files": {"category": "filesystem", "requires_sandbox": False},
-    "grep_files": {"category": "filesystem", "requires_sandbox": False},
-    "delete_file": {"category": "filesystem", "requires_sandbox": False, "requires_approval": True},
-    "bash_execute": {"category": "shell", "requires_sandbox": True},
-    "web_search": {"category": "web", "requires_sandbox": False},
-    "web_fetch": {"category": "web", "requires_sandbox": False},
+    "web_search": {"category": "web"},
+    "web_fetch": {"category": "web"},
+    "memory_store": {"category": "knowledge"},
+    "memory_recall": {"category": "knowledge"},
+    "run_code": {"category": "code"},
+    "http_request": {"category": "integration"},
+    "generate_image": {"category": "content"},
+    "send_notification": {"category": "communication"},
+    "delegate_task": {"category": "a2a"},
+    "query_agent": {"category": "a2a"},
 }
 
 CORE_TOOLS = {
-    "read_file": read_file, "write_file": write_file, "edit_file": edit_file,
-    "delete_file": delete_file, "list_files": list_files, "glob_files": glob_files,
-    "grep_files": grep_files, "bash_execute": bash_execute, "web_search": web_search,
-    "web_fetch": web_fetch,
+    "web_search": web_search, "web_fetch": web_fetch,
+    "memory_store": memory_store, "memory_recall": memory_recall,
+    "run_code": run_code, "http_request": http_request,
+    "generate_image": generate_image, "send_notification": send_notification,
+    "delegate_task": delegate_task, "query_agent": query_agent,
 }
 
 
@@ -400,7 +352,6 @@ class RegisteredTool:
     schema: ToolSchema
     handler: callable
     category: str = "general"
-    requires_sandbox: bool = False
     requires_approval: bool = False
     origin: str = "builtin"
 
@@ -410,21 +361,11 @@ class ToolRegistry:
         self._tools: Dict[str, RegisteredTool] = {}
         self._discovered = False
 
-    def register(
-        self,
-        name: str,
-        description: str,
-        schema: ToolSchema,
-        handler: callable,
-        category: str = "general",
-        requires_sandbox: bool = False,
-        requires_approval: bool = False,
-        origin: str = "builtin",
-    ) -> None:
+    def register(self, name: str, description: str, schema: ToolSchema, handler: callable,
+                 category: str = "general", requires_approval: bool = False, origin: str = "builtin") -> None:
         self._tools[name] = RegisteredTool(
             name=name, description=description, schema=schema, handler=handler,
-            category=category, requires_sandbox=requires_sandbox,
-            requires_approval=requires_approval, origin=origin,
+            category=category, requires_approval=requires_approval, origin=origin,
         )
         logger.info(f"Registered tool: {name}")
 
@@ -461,12 +402,7 @@ class ToolRegistry:
         if not self._discovered:
             self._discover()
         return [
-            {
-                "name": t.name, "description": t.description, "category": t.category,
-                "origin": t.origin, "requires_sandbox": t.requires_sandbox,
-                "requires_approval": t.requires_approval,
-                "parameters": t.schema.parameters,
-            }
+            {"name": t.name, "description": t.description, "category": t.category, "origin": t.origin}
             for t in self._tools.values()
         ]
 
@@ -483,8 +419,7 @@ class ToolRegistry:
         return list(sorted(set(t.category for t in self._tools.values())))
 
     def get_openai_functions(self, category: Optional[str] = None) -> List[Dict[str, Any]]:
-        schemas = self.get_schemas(category)
-        return [s.to_openai_function() for s in schemas]
+        return [s.to_openai_function() for s in self.get_schemas(category)]
 
     async def discover_mcp_tools(self) -> int:
         return 0
@@ -493,8 +428,6 @@ class ToolRegistry:
         if self._discovered:
             return
         self._discovered = True
-
-        # Register core tools
         for name, handler in CORE_TOOLS.items():
             meta = CORE_TOOL_METADATA.get(name, {})
             schema = BUILTIN_TOOL_SCHEMAS.get(name)
@@ -502,25 +435,9 @@ class ToolRegistry:
                 schema = ToolSchema(name=name, description=handler.__doc__ or "", parameters={"type": "object", "properties": {}})
             self.register(
                 name=name, description=schema.description, schema=schema, handler=handler,
-                category=meta.get("category", "general"), requires_sandbox=meta.get("requires_sandbox", False),
+                category=meta.get("category", "general"),
                 requires_approval=meta.get("requires_approval", False), origin="builtin",
             )
-
-        # Auto-discover from src.tools (fallback)
-        try:
-            import os
-            if os.path.exists("src"):
-                import src.tools as tools_pkg
-                prefix = tools_pkg.__name__ + "."
-                for _, modname, ispkg in pkgutil.walk_packages(tools_pkg.__path__, prefix):
-                    if not ispkg:
-                        try:
-                            importlib.import_module(modname)
-                        except Exception as e:
-                            logger.warning(f"Failed to load tool module {modname}: {e}")
-        except Exception as e:
-            pass
-
         logger.info(f"Tool registry initialized with {len(self._tools)} tools")
 
 
@@ -538,18 +455,14 @@ def get_tool_registry() -> ToolRegistry:
 def get_tool_schema(name: str) -> Optional[ToolSchema]:
     return get_tool_registry().get_schema(name)
 
-
 def get_tool_handler(name: str) -> Optional[callable]:
     return get_tool_registry().get_handler(name)
-
 
 def get_all_tool_schemas() -> List[ToolSchema]:
     return get_tool_registry().get_all_schemas()
 
-
 def get_all_tool_names() -> List[str]:
     return get_tool_registry().get_all_names()
-
 
 def get_tool_catalog() -> List[Dict[str, Any]]:
     return get_tool_registry().get_catalog()

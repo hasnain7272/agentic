@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Loader2, Plus, Search, Radio, Settings, Trash2, Zap, Clock, Check, X } from 'lucide-react';
+import { Loader2, Plus, Search, Radio, Settings, Trash2, Zap, Clock, Check, X, Link, Link2, Unlink } from 'lucide-react';
 import { useSessions } from './session-drawer/useSessions';
 import { EditableSessionName } from './session-drawer/EditableSessionName';
 import { timeAgo } from './session-drawer/timeAgo';
@@ -11,6 +11,7 @@ interface SessionSidebarProps {
 export function SessionSidebar({ onOpenSettings }: SessionSidebarProps) {
   const sessions = useSessions(() => {}, onOpenSettings);
   const [deletingSessionId, setDeletingSessionId] = useState<string | null>(null);
+  const [linkingSessionId, setLinkingSessionId] = useState<string | null>(null);
 
   useEffect(() => {
     sessions.loadSessions();
@@ -20,6 +21,27 @@ export function SessionSidebar({ onOpenSettings }: SessionSidebarProps) {
     event.stopPropagation();
     await sessions.endSession(id);
     setDeletingSessionId(null);
+  };
+
+  const handleLinkClick = (id: string, event: React.MouseEvent) => {
+    event.stopPropagation();
+    setLinkingSessionId(id);
+  };
+
+  const handleLinkConfirm = async (sourceId: string, targetId: string, event: React.MouseEvent) => {
+    event.stopPropagation();
+    await sessions.linkSession(sourceId, targetId);
+    setLinkingSessionId(null);
+  };
+
+  const handleUnlinkConfirm = async (sourceId: string, targetId: string, event: React.MouseEvent) => {
+    event.stopPropagation();
+    await sessions.unlinkSession(sourceId, targetId);
+    setLinkingSessionId(null);
+  };
+
+  const getLinkableSessions = (currentId: string) => {
+    return sessions.sessions.filter(s => s.id !== currentId);
   };
 
   return (
@@ -60,11 +82,15 @@ export function SessionSidebar({ onOpenSettings }: SessionSidebarProps) {
           sessions.sessions.map((session) => {
             const active = session.id === sessions.currentSessionId;
             const isDeleting = deletingSessionId === session.id;
+            const isLinking = linkingSessionId === session.id;
+            const a2aLinks = session.a2a_links || [];
+            const linkableSessions = getLinkableSessions(session.id);
+            const linkedSessionIds = new Set(a2aLinks);
 
             return (
               <div
                 key={session.id}
-                onClick={() => !isDeleting && sessions.switchSession(session.id)}
+                onClick={() => !isDeleting && !isLinking && sessions.switchSession(session.id)}
                 className={`group relative flex w-full flex-col rounded-xl p-3 text-left transition-all duration-200 border cursor-pointer ${
                   active
                     ? 'bg-slate-900 border-emerald-500/30 ring-1 ring-emerald-500/20'
@@ -92,6 +118,12 @@ export function SessionSidebar({ onOpenSettings }: SessionSidebarProps) {
                       ) : (
                         <span className="italic text-slate-600">No model configured</span>
                       )}
+                      {a2aLinks.length > 0 && (
+                        <>
+                          <Link2 className="h-2.5 w-2.5 text-cyan-400" />
+                          <span className="truncate text-cyan-400">Swarm: {a2aLinks.length} linked</span>
+                        </>
+                      )}
                     </div>
                   </div>
 
@@ -117,6 +149,36 @@ export function SessionSidebar({ onOpenSettings }: SessionSidebarProps) {
                           <X className="h-3 w-3" />
                         </button>
                       </div>
+                    ) : isLinking ? (
+                      <div className="flex items-center gap-1 bg-slate-900/90 rounded-lg p-0.5 border border-cyan-950">
+                        {linkableSessions.map((targetSession) => (
+                          <button
+                            key={targetSession.id}
+                            title={linkedSessionIds.has(targetSession.id) ? `Unlink from ${targetSession.name}` : `Link with ${targetSession.name}`}
+                            onClick={(e) => linkedSessionIds.has(targetSession.id) 
+                              ? handleUnlinkConfirm(session.id, targetSession.id, e)
+                              : handleLinkConfirm(session.id, targetSession.id, e)
+                            }
+                            className={`rounded p-1.5 transition-colors ${
+                              linkedSessionIds.has(targetSession.id)
+                                ? 'text-cyan-400 hover:bg-cyan-950/40'
+                                : 'text-slate-400 hover:bg-slate-800 hover:text-cyan-400'
+                            }`}
+                          >
+                            {linkedSessionIds.has(targetSession.id) ? <Unlink className="h-3.5 w-3.5" /> : <Link className="h-3.5 w-3.5" />}
+                          </button>
+                        ))}
+                        <button
+                          title="Cancel"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setLinkingSessionId(null);
+                          }}
+                          className="rounded p-1 text-slate-400 hover:bg-slate-800"
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      </div>
                     ) : (
                       <>
                         <button
@@ -128,6 +190,13 @@ export function SessionSidebar({ onOpenSettings }: SessionSidebarProps) {
                           className="rounded-md p-1.5 text-slate-400 hover:bg-slate-800 hover:text-emerald-400 transition-colors"
                         >
                           <Settings className="h-3.5 w-3.5" />
+                        </button>
+                        <button
+                          title="A2A Swarm: Link Sessions"
+                          onClick={(e) => handleLinkClick(session.id, e)}
+                          className="rounded-lg p-1.5 text-slate-400 hover:bg-cyan-950/40 hover:text-cyan-400 transition-colors"
+                        >
+                          <Link2 className="h-3.5 w-3.5" />
                         </button>
                         <button
                           title="Delete Session"
@@ -164,14 +233,16 @@ export function SessionSidebar({ onOpenSettings }: SessionSidebarProps) {
           })
         ) : (
           <div className="px-5 py-12 text-center text-xs text-slate-600">
-            No sessions found.
+            No sessions found. Click "New Session" to start.
           </div>
         )}
       </div>
 
       <div className="border-t border-slate-900 bg-slate-950/80 p-3.5">
         <p className="text-[10px] text-slate-500 leading-relaxed">
-          Each session isolates environment variables, files, and chat history.
+          Sessions are database-isolated, persisting memories and chat history.
+          <br />
+          <span className="text-cyan-400">A2A Swarm:</span> Link sessions to form multi-agent swarms and share context.
         </p>
       </div>
     </div>

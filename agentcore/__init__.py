@@ -1,17 +1,15 @@
 """
 AgentCore - Minimalist Agentic Runtime
 
-A consolidated, ~3,500-line agentic platform with:
+A database-only agentic platform with:
 - config.py    — Pydantic settings
-- auth.py      — JWT + middleware + RBAC
+- auth.py      — JWT + middleware
 - database.py  — SQLAlchemy models + session
-- governance.py — Roles, policies, approval workflows
-- sandbox.py   — Docker & local sandbox execution
+- governance.py — Policies, approval workflows
 - mcp.py       — MCP client, protocol, stdio
-- tools.py     — Tool registry, schemas, builtin tools
+- tools.py     — Tool registry, schemas, skilled tools
 - agent_loop.py — ReAct orchestration engine
 - api.py       — FastAPI REST endpoints
 - websocket.py — WebSocket handlers
-- web_search.py — Multi-provider web search
 - main.py      — Entry point
 """

@@ -11,6 +11,7 @@ const initialState = {
   llmConfig: { model: 'gpt-4o', api_key: '', base_url: '', extra_body: '', temperature: 0.2, top_p: 0.95, max_tokens: 8192 },
   llmPreset: 'openai',
   activeModelId: '',
+  sessionByokConfig: null as SessionState['sessionByokConfig'],
 };
 
 export const useSessionStore = create<SessionState>()(
@@ -27,6 +28,8 @@ export const useSessionStore = create<SessionState>()(
           ...current,
           ...stored,
           llmConfig: { ...current.llmConfig, ...stored.llmConfig, api_key: '' },
+          // Don't persist sessionByokConfig - it's session-scoped and should be cleared on new session
+          sessionByokConfig: null,
         };
       },
       partialize: (state) => ({
@@ -36,6 +39,7 @@ export const useSessionStore = create<SessionState>()(
         llmConfig: { ...state.llmConfig, api_key: '' },
         llmPreset: state.llmPreset,
         activeModelId: state.activeModelId,
+        // Don't persist sessionByokConfig - it's session-scoped
       }),
     },
   ),

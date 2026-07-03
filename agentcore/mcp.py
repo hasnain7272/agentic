@@ -721,52 +721,26 @@ class MCPStdioServer:
 def create_default_server() -> MCPStdioServer:
     server = MCPStdioServer()
 
-    def read_file(filepath: str) -> str:
-        from pathlib import Path
-        path = Path(filepath)
-        return path.read_text()
+    # Register database-backed MCP tools (no filesystem, no shell)
+    from agentcore.tools import web_search as _web_search, memory_store as _mem_store
 
-    def write_file(filepath: str, content: str) -> str:
-        from pathlib import Path
-        path = Path(filepath)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(content)
-        return f"Written to {filepath}"
+    async def mcp_web_search(query: str) -> str:
+        result = await _web_search(query=query)
+        return str(result.data) if result.success else result.error
 
-    def list_files(path: str = ".") -> List[str]:
-        from pathlib import Path
-        base = Path(path)
-        return [str(f.relative_to(base)) for f in base.rglob("*") if f.is_file()]
-
-    def bash_execute(command: str, working_dir: str = ".") -> Dict[str, Any]:
-        import subprocess
-        from pathlib import Path
-        cwd = Path(working_dir)
-        result = subprocess.run(
-            command, shell=True, cwd=cwd,
-            capture_output=True, text=True, timeout=60
-        )
-        return {"stdout": result.stdout, "stderr": result.stderr, "exit_code": result.returncode}
+    async def mcp_memory_store(key: str, value: str) -> str:
+        result = await _mem_store(key=key, value=value)
+        return str(result.data) if result.success else result.error
 
     server.register_tool(
-        "read_file", "Read a file from the workspace",
-        {"type": "object", "properties": {"filepath": {"type": "string"}}, "required": ["filepath"]},
-        read_file, "filesystem",
+        "web_search", "Search the web for information",
+        {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]},
+        mcp_web_search, "web",
     )
     server.register_tool(
-        "write_file", "Write a file to the workspace",
-        {"type": "object", "properties": {"filepath": {"type": "string"}, "content": {"type": "string"}}, "required": ["filepath", "content"]},
-        write_file, "filesystem",
-    )
-    server.register_tool(
-        "list_files", "List files in the workspace",
-        {"type": "object", "properties": {"path": {"type": "string", "default": "."}}},
-        list_files, "filesystem",
-    )
-    server.register_tool(
-        "bash_execute", "Execute bash command in sandbox",
-        {"type": "object", "properties": {"command": {"type": "string"}, "working_dir": {"type": "string", "default": "."}}, "required": ["command"]},
-        bash_execute, "shell",
+        "memory_store", "Store a key-value memory entry",
+        {"type": "object", "properties": {"key": {"type": "string"}, "value": {"type": "string"}}, "required": ["key", "value"]},
+        mcp_memory_store, "knowledge",
     )
 
     return server

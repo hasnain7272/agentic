@@ -6,4 +6,6 @@ export interface SessionInfo {
   created_at: string;
   model?: string;
   has_key?: boolean;
+  a2a_links?: string[];
+  byokConfig?: any;
 }

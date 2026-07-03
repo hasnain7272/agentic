@@ -5,7 +5,9 @@ Consolidated authentication: token creation, validation, API keys, and request m
 """
 import hashlib
 import logging
+import os
 import secrets
+
 import time
 from datetime import datetime, timedelta
 from functools import wraps

@@ -63,7 +63,7 @@ export function Login() {
             {isRegister ? 'Create your Account' : 'Welcome back'}
           </h2>
           <p className="text-slate-400 text-sm mt-2">
-            {isRegister ? 'Join the autonomous development era' : 'Sign in to your isolated workspace'}
+            {isRegister ? 'Join the autonomous development era' : 'Sign in to your agentic dashboard'}
           </p>
         </div>
 

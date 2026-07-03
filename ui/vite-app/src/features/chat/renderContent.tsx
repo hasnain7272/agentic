@@ -42,7 +42,6 @@ function CopyButton({ text }: CopyButtonProps) {
 // Simple highlighter helper
 function highlightCode(code: string, lang: string) {
   if (!code) return code;
-  // Basic token coloring via HTML elements for popular languages
   const escaped = code
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
@@ -134,30 +133,15 @@ function renderTextAndAttachments(
   imageRegex: RegExp,
   sessionId?: string
 ): React.ReactNode {
-  const tokenParam = () => {
-    const token = getAuthToken();
-    return token ? `token=${encodeURIComponent(token)}` : '';
-  };
-
   const parts = text.split(combinedRegex);
   return parts.map((part, i) => {
     if (!part) return null;
 
     // Check for absolute path artifact
     if (part.match(imageRegex)) {
-      const query = new URLSearchParams({ path: part });
-      const token = getAuthToken();
-      if (token) query.set('token', token);
       return (
-        <div key={i} className="my-3 overflow-hidden rounded-xl border border-slate-800/80 bg-slate-950/50 shadow-2xl">
-          <img 
-            src={`/api/v1/workspace/artifacts?${query.toString()}`} 
-            alt="Tool Artifact" 
-            className="max-h-96 w-full object-contain"
-          />
-          <div className="bg-slate-900/60 px-3 py-1.5 text-[10px] font-mono text-slate-500 truncate">
-            {part}
-          </div>
+        <div key={i} className="my-3 rounded-xl border border-slate-800 bg-slate-950/50 p-3 text-xs text-slate-400 font-mono">
+          Artifact path: {part} (Filesystem access is disabled in database-only mode)
         </div>
       );
     }
@@ -166,21 +150,9 @@ function renderTextAndAttachments(
     const attachmentMatch = part.match(/Attached: ([^\n]+\.(?:png|jpg|jpeg|webp|gif|mp4|mov|webm))/i);
     if (attachmentMatch && sessionId) {
       const filename = attachmentMatch[1];
-      const isVideo = /\.(mp4|mov|webm)$/i.test(filename);
-      const auth = tokenParam();
-      const url = `/api/v1/workspace/sessions/${sessionId}/file/${encodeURIComponent(filename)}${auth ? `?${auth}` : ''}`;
-
       return (
-        <div key={i} className="my-3 overflow-hidden rounded-xl border border-cyan-500/20 bg-slate-950/50 shadow-xl">
-          {isVideo ? (
-            <video src={url} controls className="max-h-96 w-full" />
-          ) : (
-            <img src={url} alt={filename} className="max-h-96 w-full object-contain" />
-          )}
-          <div className="bg-cyan-500/5 px-3 py-1.5 text-[10px] font-medium text-cyan-400/80 truncate flex items-center gap-1.5 border-t border-cyan-500/10">
-            <div className="h-1.5 w-1.5 rounded-full bg-cyan-500" />
-            {filename}
-          </div>
+        <div key={i} className="my-3 rounded-xl border border-slate-850 bg-slate-950/50 p-3 text-xs text-slate-400 font-mono">
+          Attachment: {filename} (File uploads are disabled in database-only mode)
         </div>
       );
     }
@@ -297,13 +269,11 @@ function parseMarkdownBlocks(text: string): React.ReactNode[] {
 
 // Parses inline elements: Bold, Italic, Code, Links
 function parseInlineMarkdown(text: string): React.ReactNode {
-  // Regexes
   const boldRegex = /\*\*([^*]+)\*\*/g;
   const italicRegex = /\*([^*]+)\*/g;
   const codeRegex = /`([^`]+)`/g;
   const linkRegex = /\[([^\]]+)\]\(([^)]+)\)/g;
 
-  // Let's tokenise the string to parse multiple formatting correctly
   let elements: React.ReactNode[] = [text];
 
   const applyRegex = (regex: RegExp, formatter: (match: string, p1: string, p2?: string) => React.ReactNode) => {
@@ -330,17 +300,13 @@ function parseInlineMarkdown(text: string): React.ReactNode {
     });
   };
 
-  // Bold
   applyRegex(boldRegex, (_, content) => <strong className="font-semibold text-white">{content}</strong>);
-  // Italic
   applyRegex(italicRegex, (_, content) => <em className="italic text-slate-200">{content}</em>);
-  // Inline Code
   applyRegex(codeRegex, (_, content) => (
     <code className="rounded bg-slate-950/80 border border-slate-800/60 px-1.5 py-0.5 font-mono text-[0.85em] text-cyan-400">
       {content}
     </code>
   ));
-  // Links
   applyRegex(linkRegex, (_, label, url) => (
     <a
       href={url}

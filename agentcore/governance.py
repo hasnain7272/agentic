@@ -34,59 +34,36 @@ class Role(str, Enum):
         return self.hierarchy().index(self) >= self.hierarchy().index(other)
 
 
-TOOL_CATEGORIES = {
-    "filesystem": ["read_file", "write_file", "create_file", "edit_file", "delete_file",
-                   "list_files", "glob_files", "grep_files"],
-    "shell": ["bash_execute", "bash_background"],
-    "git": ["git_clone", "git_read", "git_write", "git_commit", "git_create_pr",
-            "git_status", "git_log", "git_diff"],
-    "code": ["code_review", "security_scan", "generate_tests", "generate_docs",
-             "generate_cicd", "code_graph_query"],
-    "data": ["database_query", "api_test", "manage_dependencies"],
+TOOL_CATEGORIES: Dict[str, List[str]] = {
     "web": ["web_search", "web_fetch"],
+    "knowledge": ["memory_store", "memory_recall"],
+    "code": ["run_code"],
+    "integration": ["http_request"],
+    "content": ["generate_image"],
+    "communication": ["send_notification"],
+    "a2a": ["delegate_task", "query_agent"],
     "mcp": ["mcp_*"],
-    "agent": ["delegate_task", "dispatch_output", "update_agent_memory", "search_past_decisions"],
 }
 
 ROLE_TOOL_CATEGORIES: Dict[Role, List[str]] = {
     Role.ADMIN: ["*"],
-    Role.DEVELOPER: ["filesystem", "shell", "git", "code", "data", "web", "mcp", "agent"],
-    Role.VIEWER: ["filesystem", "code", "web", "agent"],
+    Role.DEVELOPER: ["web", "knowledge", "code", "integration", "content", "communication", "a2a", "mcp"],
+    Role.VIEWER: ["web", "knowledge", "a2a"],
 }
 
 ROLE_TOOL_PERMISSIONS: Dict[Role, Dict[str, bool]] = {
     Role.ADMIN: {},
-    Role.DEVELOPER: {
-        "bash_execute": True, "bash_background": True, "git_write": True,
-        "git_commit": True, "git_create_pr": True, "delete_file": True,
-        "security_scan": True,
-    },
+    Role.DEVELOPER: {},
     Role.VIEWER: {
-        "bash_execute": False, "bash_background": False, "git_write": False,
-        "git_commit": False, "git_create_pr": False, "delete_file": False,
-        "write_file": False, "create_file": False, "edit_file": False,
-        "security_scan": False,
+        "run_code": False, "http_request": False, "send_notification": False,
     },
 }
 
 APPROVAL_REQUIRED: Dict[str, Dict[str, bool]] = {
-    "auto": {
-        "bash_execute": False, "git_create_pr": True, "delete_file": True,
-    },
+    "auto": {},
     "strict": {
-        "bash_execute": True, "bash_background": True, "git_write": True,
-        "git_commit": True, "git_create_pr": True, "write_file": True,
-        "create_file": True, "edit_file": True, "delete_file": True,
-        "database_query": True, "mcp_*": True,
+        "run_code": True, "http_request": True, "delegate_task": True, "mcp_*": True,
     },
-}
-
-SANDBOXED_TOOLS = {"bash_execute", "bash_background", "python_execute", "node_execute"}
-UNSANDBOXED_TOOLS = {
-    "read_file", "list_files", "glob_files", "grep_files",
-    "git_read", "git_status", "git_log", "git_diff", "code_graph_query",
-    "web_search", "web_fetch", "database_query", "api_test",
-    "delegate_task", "dispatch_output", "update_agent_memory", "search_past_decisions",
 }
 
 DEFAULT_RISK_MODE: Dict[Role, str] = {
@@ -145,12 +122,7 @@ def requires_approval(risk_mode: str, tool_name: str) -> bool:
     return False
 
 
-def is_sandboxed(tool_name: str) -> bool:
-    return tool_name in SANDBOXED_TOOLS
 
-
-def is_unsandboxed(tool_name: str) -> bool:
-    return tool_name in UNSANDBOXED_TOOLS
 
 
 # =============================================================================
@@ -222,28 +194,6 @@ class GovernanceEngine:
                     message=f"Action '{tool_name}' requires your approval in {risk_mode} mode",
                 )
 
-    def _validate_paths(
-        self,
-        tool_name: str,
-        kwargs: Dict[str, Any],
-        session_id: Optional[str],
-        tenant_id: str,
-    ) -> None:
-        """Validate file paths for isolation (simplified)."""
-        filesystem_tools = {"read_file", "write_file", "create_file", "edit_file", "delete_file",
-                            "list_files", "glob_files", "grep_files"}
-        if tool_name not in filesystem_tools:
-            return
-
-        filepath = kwargs.get("filepath") or kwargs.get("path")
-        if not filepath:
-            return
-
-        # Simple path traversal prevention
-        import os
-        if ".." in filepath or filepath.startswith("/"):
-            raise GovernanceDeniedError(f"Path traversal not allowed: {filepath}")
-
     def get_allowed_tools(
         self,
         role: Role,
@@ -254,13 +204,9 @@ class GovernanceEngine:
         all_tools = set()
 
         all_possible = [
-            "read_file", "write_file", "create_file", "edit_file", "delete_file",
-            "list_files", "glob_files", "grep_files", "bash_execute", "bash_background",
-            "git_clone", "git_read", "git_write", "git_commit", "git_create_pr",
-            "git_status", "git_log", "git_diff", "code_review", "security_scan",
-            "generate_tests", "generate_docs", "generate_cicd", "code_graph_query",
-            "database_query", "api_test", "manage_dependencies", "web_search", "web_fetch",
-            "delegate_task", "dispatch_output", "update_agent_memory", "search_past_decisions",
+            "web_search", "web_fetch", "memory_store", "memory_recall",
+            "run_code", "http_request", "generate_image",
+            "send_notification", "delegate_task", "query_agent",
         ]
 
         for tool in all_possible:
@@ -279,10 +225,9 @@ class GovernanceEngine:
             return False, None
         if approved:
             return False, None
-        sandboxed = is_sandboxed(tool_name)
-        msg = (f"Tool '{tool_name}' runs in a sandboxed environment. Approve to execute?"
-               if sandboxed else f"Tool '{tool_name}' will execute on the host system. Are you sure?")
+        msg = f"Tool '{tool_name}' will execute on your system. Are you sure?"
         return True, msg
+
 
     def evaluate_batch(
         self,

@@ -30,16 +30,15 @@ async def startup():
     """Run startup tasks: DB init, tool registration, etc."""
     from agentcore.database import init_db
     from agentcore.tools import get_tool_registry
-    from agentcore.web_search import register_web_search_tool
 
     # Initialize database tables
     await init_db()
 
-    # Register web search tool
+    # Initialize tool registry (auto-discovers all built-in tools)
     registry = get_tool_registry()
-    register_web_search_tool(registry)
+    registry.get_all_names()  # trigger lazy discovery
 
-    logging.getLogger(__name__).info("Startup complete")
+    logging.getLogger(__name__).info(f"Startup complete — {len(registry.get_all_names())} tools registered")
 
 
 def main():

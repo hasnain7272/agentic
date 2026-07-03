@@ -6,10 +6,11 @@ interface Props {
   streaming: boolean;
   modelOptions: ModelOption[];
   activeModelId: string;
-  inputRef: React.RefObject<HTMLTextAreaElement>;
+  inputRef: React.RefObject<HTMLTextAreaElement | null>;
   onInput: (value: string) => void;
-  onSend: () => void;
+  onSend?: () => void;
   onModelSelect: (id: string) => void;
+  disabled?: boolean;
 }
 
 export function ChatComposer({
@@ -21,10 +22,11 @@ export function ChatComposer({
   onInput,
   onSend,
   onModelSelect,
+  disabled = false,
 }: Props) {
-  const submit = (e: React.FormEvent) => { e.preventDefault(); onSend(); };
+  const submit = (e: React.FormEvent) => { e.preventDefault(); onSend?.(); };
   const keyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); onSend(); }
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); onSend?.(); }
   };
   const activeModel = modelOptions.find(m => m.id === activeModelId) || modelOptions[0];
 
@@ -34,7 +36,7 @@ export function ChatComposer({
         <select
           value={activeModel?.id || ''}
           onChange={(e) => onModelSelect(e.target.value)}
-          disabled={streaming || !modelOptions.length}
+          disabled={streaming || !modelOptions.length || disabled}
           className="flex-1 rounded bg-[#1e1e1e] border border-[#2e2e2e] px-3 py-1.5 text-[11px] font-medium text-slate-200 outline-none focus:border-emerald-500/50 disabled:opacity-50"
         >
           {!modelOptions.length && <option value="">No model configured</option>}
@@ -51,13 +53,13 @@ export function ChatComposer({
           value={input}
           onChange={(e) => onInput(e.target.value)}
           onKeyDown={keyDown}
-          placeholder="Message..."
-          disabled={streaming}
+          placeholder={disabled ? "Create a session first..." : "Message..."}
+          disabled={streaming || disabled}
           className="flex-1 min-h-[42px] max-h-48 rounded bg-[#1e1e1e] border border-[#2e2e2e] px-3 py-2 text-sm text-slate-100 outline-none placeholder:text-slate-600 resize-none disabled:opacity-50 focus:border-emerald-500/50"
         />
         <button
           type="submit"
-          disabled={streaming || !input.trim() || !modelOptions.length}
+          disabled={streaming || !input.trim() || !modelOptions.length || disabled}
           className="flex h-10 w-10 shrink-0 items-center justify-center rounded bg-emerald-600 text-white transition hover:bg-emerald-500 disabled:opacity-30"
         >
           {streaming ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}

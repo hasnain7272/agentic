@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { apiClient } from '@/api/client';
 import { useSessionStore } from '@/store/sessionStore';
-import { Loader2, Check, Plus, Trash2, Settings, Server, KeyRound, EyeOff, Eye, ShieldCheck } from 'lucide-react';
+import { Loader2, Check, Plus, Trash2, Settings, Server, KeyRound, EyeOff, Eye, ShieldCheck, Wrench } from 'lucide-react';
 import { useToastStore } from '@/components/Toast';
 
 interface BYOKConfig {
@@ -360,7 +360,160 @@ export function InlineSettingsTab() {
             </div>
           )}
         </div>
+
+        {/* Session Tool Permissions Section */}
+        <SessionToolPermissions />
       </div>
     </div>
   );
 }
+
+interface ToolCatalogItem {
+  name: string;
+  description: string;
+  category: string;
+  origin: string;
+}
+
+function SessionToolPermissions() {
+  const sessionId = useSessionStore((s) => s.sessionId);
+  const addToast = useToastStore((s) => s.addToast);
+
+  const [loading, setLoading] = useState(false);
+  const [catalog, setCatalog] = useState<ToolCatalogItem[]>([]);
+  const [enabledTools, setEnabledTools] = useState<string[]>([]);
+
+  const loadTools = useCallback(async () => {
+    if (!sessionId) return;
+    setLoading(true);
+    try {
+      const res = await apiClient.get<any>(`/sessions/${sessionId}/tools`);
+      if (res.data) {
+        setCatalog(res.data.catalog || []);
+        setEnabledTools(res.data.enabled_tools || []);
+      }
+    } catch (e) {
+      console.error('Failed to load session tools', e);
+    } finally {
+      setLoading(false);
+    }
+  }, [sessionId]);
+
+  useEffect(() => {
+    loadTools();
+  }, [loadTools]);
+
+  const handleToggleTool = async (toolName: string) => {
+    if (!sessionId) return;
+    const isEnabled = enabledTools.includes(toolName);
+    const updated = isEnabled
+      ? enabledTools.filter((t) => t !== toolName)
+      : [...enabledTools, toolName];
+
+    // Optimistic update
+    setEnabledTools(updated);
+
+    try {
+      await apiClient.patch(`/sessions/${sessionId}/tools`, { enabled_tools: updated });
+      addToast('success', `${toolName} ${isEnabled ? 'disabled' : 'enabled'} for this session`);
+    } catch (e: any) {
+      addToast('error', e.message || 'Failed to update tool permissions');
+      // Rollback
+      setEnabledTools(enabledTools);
+    }
+  };
+
+  if (!sessionId) {
+    return (
+      <div className="rounded-2xl border border-slate-800 bg-[#0c0c0e]/40 p-6 space-y-3">
+        <div className="flex items-center gap-3 text-slate-400">
+          <Wrench className="h-5 w-5 text-slate-500" />
+          <h3 className="text-sm font-semibold">Session Tool Permissions</h3>
+        </div>
+        <p className="text-xs text-slate-500">
+          Select a session from the dropdown at the top to configure tool permissions.
+        </p>
+      </div>
+    );
+  }
+
+  // Group tools by category
+  const categories: Record<string, ToolCatalogItem[]> = {};
+  catalog.forEach((tool) => {
+    const cat = tool.category || 'general';
+    if (!categories[cat]) categories[cat] = [];
+    categories[cat].push(tool);
+  });
+
+  return (
+    <div className="rounded-2xl border border-slate-800 bg-[#0c0c0e] p-6 shadow-xl space-y-6">
+      <div className="flex items-center justify-between border-b border-slate-800 pb-4">
+        <div className="flex items-center gap-3">
+          <div className="rounded-xl bg-emerald-500/10 p-2 text-emerald-400">
+            <Wrench className="h-5 w-5" />
+          </div>
+          <div>
+            <h3 className="text-sm font-bold text-slate-100">Session Tool Permissions</h3>
+            <p className="text-[10px] text-slate-500">
+              Toggle specific tools on or off for the active session. All tools are enabled by default.
+            </p>
+          </div>
+        </div>
+        {loading && <Loader2 className="h-4 w-4 animate-spin text-slate-500" />}
+      </div>
+
+      <div className="space-y-6">
+        {Object.entries(categories).map(([catName, tools]) => (
+          <div key={catName} className="space-y-2">
+            <h4 className="text-[10px] font-bold uppercase tracking-wider text-slate-500 bg-slate-900/40 px-2 py-1 rounded inline-block">
+              {catName}
+            </h4>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {tools.map((tool) => {
+                const isEnabled = enabledTools.includes(tool.name);
+                return (
+                  <div
+                    key={tool.name}
+                    onClick={() => handleToggleTool(tool.name)}
+                    className={`flex items-start justify-between rounded-xl border p-3.5 transition-all select-none cursor-pointer ${
+                      isEnabled
+                        ? 'border-emerald-500/20 bg-emerald-500/[0.02] hover:bg-emerald-500/[0.04]'
+                        : 'border-slate-850 bg-transparent hover:bg-slate-900/10 opacity-60 hover:opacity-85'
+                    }`}
+                  >
+                    <div className="space-y-1.5 pr-4">
+                      <div className="flex items-center gap-2">
+                        <span className="font-semibold text-xs text-slate-200">{tool.name}</span>
+                        {tool.origin !== 'builtin' && (
+                          <span className="rounded bg-slate-800 text-slate-500 px-1 py-0.5 text-[8px] font-mono">
+                            {tool.origin}
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-[10px] text-slate-500 leading-normal">{tool.description}</p>
+                    </div>
+
+                    <div className="relative shrink-0 mt-0.5">
+                      <div
+                        className={`w-8 h-4 rounded-full transition-colors duration-200 ${
+                          isEnabled ? 'bg-emerald-500' : 'bg-slate-800'
+                        }`}
+                      >
+                        <div
+                          className={`absolute w-3.5 h-3.5 rounded-full bg-white top-[1px] left-[1px] transition-transform duration-200 ${
+                            isEnabled ? 'translate-x-4' : 'translate-x-0'
+                          }`}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+

@@ -35,7 +35,7 @@ function MainApp() {
       <div className="flex h-screen items-center justify-center bg-slate-950 text-slate-500 text-sm">
         <div className="flex flex-col items-center gap-3">
           <div className="h-8 w-8 animate-spin rounded-full border-2 border-cyan-500/30 border-t-cyan-500" />
-          <span>Syncing isolated workspace...</span>
+          <span>Syncing agent environment...</span>
         </div>
       </div>
     );
