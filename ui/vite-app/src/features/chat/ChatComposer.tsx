@@ -1,31 +1,25 @@
-import { ChevronDown, Loader2, Paperclip, Send } from 'lucide-react';
+import { Loader2, Send } from 'lucide-react';
 import type { ModelOption } from '@/features/chat/types';
 
 interface Props {
   input: string;
   streaming: boolean;
-  shadowMode: boolean;
   modelOptions: ModelOption[];
   activeModelId: string;
   inputRef: React.RefObject<HTMLTextAreaElement>;
   onInput: (value: string) => void;
   onSend: () => void;
-  onUpload: (event: React.ChangeEvent<HTMLInputElement>) => void;
-  onToggleShadow: () => void;
   onModelSelect: (id: string) => void;
 }
 
 export function ChatComposer({
   input,
   streaming,
-  shadowMode,
   modelOptions,
   activeModelId,
   inputRef,
   onInput,
   onSend,
-  onUpload,
-  onToggleShadow,
   onModelSelect,
 }: Props) {
   const submit = (e: React.FormEvent) => { e.preventDefault(); onSend(); };
@@ -48,17 +42,6 @@ export function ChatComposer({
             <option key={model.id} value={model.id}>{model.label}</option>
           ))}
         </select>
-        
-        <button
-          type="button"
-          onClick={onToggleShadow}
-          className={`rounded px-2 py-1.5 text-[10px] font-medium transition ${shadowMode
-            ? 'bg-amber-500/15 text-amber-400 border border-amber-500/30'
-            : 'bg-[#1e1e1e] text-slate-500 border border-[#2e2e2e] hover:text-slate-300'
-          }`}
-        >
-          {shadowMode ? 'Shadow' : 'Live'}
-        </button>
       </div>
 
       <div className="flex items-end gap-2">
@@ -72,10 +55,6 @@ export function ChatComposer({
           disabled={streaming}
           className="flex-1 min-h-[42px] max-h-48 rounded bg-[#1e1e1e] border border-[#2e2e2e] px-3 py-2 text-sm text-slate-100 outline-none placeholder:text-slate-600 resize-none disabled:opacity-50 focus:border-emerald-500/50"
         />
-        <label className="flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded bg-[#1e1e1e] border border-[#2e2e2e] text-slate-500 hover:border-emerald-500/50 hover:text-slate-300 transition" title="Attach file">
-          <input type="file" className="hidden" onChange={onUpload} />
-          <Paperclip className="h-4 w-4" />
-        </label>
         <button
           type="submit"
           disabled={streaming || !input.trim() || !modelOptions.length}

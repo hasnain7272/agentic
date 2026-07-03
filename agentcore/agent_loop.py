@@ -95,13 +95,13 @@ class LLMCaller:
 
         if context and context.tenant_id:
             from sqlalchemy import select
-            from agentcore.database import get_db, TenantModel, SessionModel
+            from agentcore.database import get_db, UserModel, SessionModel
             async for db in get_db():
                 try:
-                    t_res = await db.execute(select(TenantModel).where(TenantModel.id == context.tenant_id))
-                    tenant = t_res.scalar_one_or_none()
-                    if tenant and tenant.settings:
-                        byom_configs = tenant.settings.get("byom_configs", [])
+                    u_res = await db.execute(select(UserModel).where(UserModel.id == context.user_id))
+                    db_user = u_res.scalar_one_or_none()
+                    if db_user and db_user.settings:
+                        byom_configs = db_user.settings.get("byom_configs", [])
                         if byom_configs:
                             selected = byom_configs[0]
                             s_res = await db.execute(select(SessionModel).where(SessionModel.id == context.session_id))
@@ -245,6 +245,42 @@ Always explain your reasoning before taking actions."""
         context.messages.append({"role": "user", "content": user_message})
         await self._persist_message(context, "user", user_message)
 
+        # Load A2A linked sessions context to feed into the swarm agent's knowledge
+        a2a_context = ""
+        async for db in get_db():
+            try:
+                from sqlalchemy import select
+                from agentcore.database import SessionModel, MessageModel
+                s_res = await db.execute(select(SessionModel).where(SessionModel.id == context.session_id))
+                session_obj = s_res.scalar_one_or_none()
+                if session_obj and session_obj.meta:
+                    linked_ids = session_obj.meta.get("a2a_links", [])
+                    if linked_ids:
+                        context_parts = []
+                        for lid in linked_ids:
+                            l_res = await db.execute(select(SessionModel).where(SessionModel.id == lid))
+                            linked_sess = l_res.scalar_one_or_none()
+                            if linked_sess:
+                                m_res = await db.execute(
+                                    select(MessageModel).where(MessageModel.session_id == lid)
+                                    .order_by(MessageModel.created_at.desc()).limit(5)
+                                )
+                                msgs = list(reversed(m_res.scalars().all()))
+                                msg_lines = []
+                                for m in msgs:
+                                    role_name = "User" if m.role == "user" else "Agent"
+                                    msg_lines.append(f"    * {role_name}: {m.content}")
+                                
+                                context_parts.append(
+                                    f"- Session '{linked_sess.title}' (ID: {lid}):\n" + 
+                                    ("\n".join(msg_lines) if msg_lines else "    * (No messages yet)")
+                                )
+                        if context_parts:
+                            a2a_context = "\n### Linked Swarm Sessions (A2A Mesh Context)\n" + "\n".join(context_parts)
+            except Exception as e:
+                logger.error(f"Error loading A2A context: {e}")
+            break
+
         try:
             await self._update_task(context, TaskStatus.running)
             while context.current_step < context.max_steps:
@@ -256,8 +292,12 @@ Always explain your reasoning before taking actions."""
                 tools = self.tool_registry.get_all_schemas()
                 openai_tools = [t.to_openai_function() for t in tools]
 
+                system_content = self.system_prompt
+                if a2a_context:
+                    system_content += "\n" + a2a_context
+
                 async for event in self.llm_caller.call(
-                    [{"role": "system", "content": self.system_prompt}] + context.messages[-20:],
+                    [{"role": "system", "content": system_content}] + context.messages[-20:],
                     tools=openai_tools,
                     stream=stream,
                     context=context,

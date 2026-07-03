@@ -3,7 +3,6 @@ import { apiClient, getAuthToken, WS_BASE_URL } from '@/api/client';
 import { useToastStore } from '@/components/Toast';
 import { useSessionStore } from '@/store/sessionStore';
 import { useTaskStore } from '@/store/taskStore';
-import { PRESETS } from '@/features/settings/LLMSettings';
 import type { ChatActivity, ModelOption, Msg } from '@/features/chat/types';
 
 /** Session-scoped localStorage key for chat messages. */
@@ -29,7 +28,7 @@ export function useChatController() {
   const [input, setInput] = useState('');
   const [msgs, setMsgs] = useState<Msg[]>(() => fromStorage(sid));
   const [streaming, setStreaming] = useState(false);
-  const [shadowMode, setShadowMode] = useState(false);
+
   const [modelOptions, setModelOptions] = useState<ModelOption[]>([]);
   const [activity, setActivity] = useState<ChatActivity[]>([]);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -52,42 +51,16 @@ export function useChatController() {
     const res = await apiClient.get<{ data: ModelOption[] }>('/settings/byok');
     const configured = res.data?.data || [];
     
-    // We always want to show all presets in the dropdown. 
-    // If a preset is configured in the backend, we merge its actual configured settings.
-    const merged = PRESETS.map((preset) => {
-      const cfg = configured.find((c) => c.id === preset.id);
-      if (cfg) {
-        return {
-          ...preset,
-          ...cfg,
-          label: cfg.label || cfg.name || preset.label,
-          provider: cfg.provider || preset.provider || (cfg.base_url?.includes('nvidia.com') ? 'NVIDIA' : 'Custom'),
-          is_configured: true,
-        };
-      }
-      return {
-        ...preset,
-        is_configured: false,
-      };
-    });
+    const finalModels = configured.map((cfg) => ({
+      ...cfg,
+      label: cfg.name || cfg.id,
+      is_configured: true,
+    }));
 
-    // We also want to include any custom configured models that are not in PRESETS
-    const customConfigured = configured
-      .filter((cfg) => !PRESETS.some((preset) => preset.id === cfg.id))
-      .map((cfg) => ({
-        ...cfg,
-        label: cfg.label || cfg.name || cfg.id,
-        provider: cfg.provider || 'Custom',
-        is_configured: true,
-      }));
-
-    const finalModels = [...merged, ...customConfigured];
     setModelOptions(finalModels);
     
-    // Set default active model: prefer a configured model over an unconfigured preset
     if (!activeModelId || !finalModels.some((m) => m.id === activeModelId)) {
-      const firstConfigured = finalModels.find((m) => m.is_configured);
-      const fallback = firstConfigured || finalModels[0];
+      const fallback = finalModels[0];
       if (fallback?.id) setActiveModelId(fallback.id);
     }
   }, [activeModelId, setActiveModelId]);
@@ -248,13 +221,16 @@ export function useChatController() {
       setStreaming(false);
       // Clear activity rail so stale items like "Analyzing..." don't persist
       setActivity([]);
-      // Finalize the streaming bubble
-      setMsgs((p) => p.map((m) => m.streaming ? { ...m, streaming: false } : m));
-      // Reload authoritative history from backend
-      setTimeout(() => {
-        setStreaming(false); // Double tap to ensure state unlocks
-        loadHistory();
-      }, 500);
+      // Finalize the streaming bubble - keep the streamed content, just mark as not streaming
+      setMsgs((p) => {
+        const finalized = p.map((m) => m.streaming ? { ...m, streaming: false, content: m.content || contentBuffer } : m);
+        // Only reload from backend if we have no assistant content (empty response edge case)
+        const lastMsg = finalized[finalized.length - 1];
+        if (!lastMsg || !lastMsg.content?.trim()) {
+          setTimeout(() => loadHistory(), 800);
+        }
+        return finalized;
+      });
     };
   }, [addToast, loadHistory, tenantId]);
 
@@ -264,11 +240,21 @@ export function useChatController() {
     setInput('');
     setMsgs((p) => [...p, { role: 'user', content: text }]);
 
+    let activeSid = sid;
+    if (!activeSid) {
+      const sRes = await apiClient.post<{ id: string }>('/sessions/', { mode: 'web' });
+      if (!sRes.data?.id) {
+        return addToast('error', sRes.error || 'Failed to auto-create session.');
+      }
+      activeSid = sRes.data.id;
+      useSessionStore.getState().setSessionId(activeSid);
+      window.dispatchEvent(new Event('refresh-sessions'));
+    }
+
     // Get active model from store
     const res = await apiClient.post<{ task_id: string }>('/chat/', {
-      session_id: sid,
+      session_id: activeSid,
       message: text,
-      shadow_mode: shadowMode,
       active_model_id: useSessionStore.getState().activeModelId || undefined
     });
 
@@ -310,7 +296,6 @@ export function useChatController() {
     input,
     msgs,
     streaming,
-    shadowMode,
     modelOptions,
     activeModelId,
     activity,
@@ -320,7 +305,6 @@ export function useChatController() {
     upload,
     approve,
     reset,
-    setShadowMode,
     setActiveModelId,
   };
 }

@@ -61,21 +61,17 @@ export function ChatPane() {
         </div>
         <div ref={endRef} />
       </div>
-
       <div className="border-t border-[#1e1e1e] bg-[#0c0c0c] p-4">
         <div className="mx-auto max-w-3xl space-y-2">
           <ActivityRail items={chat.activity} streaming={chat.streaming} />
           <ChatComposer
             input={chat.input}
             streaming={chat.streaming}
-            shadowMode={chat.shadowMode}
             modelOptions={chat.modelOptions}
             activeModelId={chat.activeModelId}
             inputRef={chat.inputRef}
             onInput={chat.setInput}
             onSend={chat.send}
-            onUpload={chat.upload}
-            onToggleShadow={() => chat.setShadowMode(!chat.shadowMode)}
             onModelSelect={chat.setActiveModelId}
           />
         </div>

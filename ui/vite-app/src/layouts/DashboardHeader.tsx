@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { Settings, LogOut, MessageSquare, Folder, Cpu, Network, Terminal } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { Settings, LogOut, MessageSquare, Cpu, Network, Trash2, Pencil, Check, X } from 'lucide-react';
 import { useSessionStore } from '@/store/sessionStore';
 import { apiClient } from '@/api/client';
 import { useSessions } from '@/components/session-drawer/useSessions';
@@ -19,10 +19,16 @@ export function DashboardHeader({
   const quotaUsd = tenantInfo?.quota_usd || 0;
   const spendPercent = quotaUsd > 0 ? Math.min(100, (spendUsd / quotaUsd) * 100) : 0;
 
-  const { sessions, currentSessionId, switchSession, createSession, loadSessions } = useSessions(() => {}, () => {});
+  const { sessions, currentSessionId, switchSession, createSession, renameSession, endSession, loadSessions } = useSessions(() => {}, () => {});
+
+  const [editing, setEditing] = useState(false);
+  const [editName, setEditName] = useState('');
+  const editRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     loadSessions();
+    window.addEventListener('refresh-sessions', loadSessions);
+    return () => window.removeEventListener('refresh-sessions', loadSessions);
   }, [loadSessions]);
 
   useEffect(() => {
@@ -37,19 +43,44 @@ export function DashboardHeader({
     fetchMe();
   }, []);
 
+  useEffect(() => {
+    if (editing && editRef.current) editRef.current.focus();
+  }, [editing]);
+
   const handleLogout = () => {
     localStorage.removeItem('auth_token');
     useSessionStore.getState().reset();
     window.location.href = '#/login';
   };
 
+  const currentSession = sessions.find((s) => s.id === currentSessionId);
+
+  const startRename = () => {
+    setEditName(currentSession?.name || '');
+    setEditing(true);
+  };
+
+  const confirmRename = async () => {
+    if (currentSessionId && editName.trim()) {
+      await renameSession(currentSessionId, editName.trim());
+    }
+    setEditing(false);
+  };
+
+  const handleDelete = async () => {
+    if (!currentSessionId) return;
+    if (sessions.length <= 1) {
+      // Create a new session first, then delete
+      await createSession();
+    }
+    await endSession(currentSessionId);
+  };
+
   const tabs = [
     { id: 'chat', label: 'Chat', icon: MessageSquare },
-    { id: 'workspaces', label: 'Workspaces', icon: Folder },
-    { id: 'capabilities', label: 'Capabilities', icon: Cpu },
-    { id: 'swarm', label: 'Swarm', icon: Network },
-    { id: 'console', label: 'Console', icon: Terminal },
     { id: 'settings', label: 'Settings', icon: Settings },
+    { id: 'swarm', label: 'Swarm', icon: Network },
+    { id: 'mcp', label: 'MCP', icon: Cpu },
   ];
 
   return (
@@ -60,24 +91,52 @@ export function DashboardHeader({
           Agentic OS
         </span>
         <div className="h-4 w-px bg-[#1e1e1e]" />
-        <select
-          value={currentSessionId || ''}
-          onChange={(e) => {
-            if (e.target.value === 'new') {
-              createSession();
-            } else {
-              switchSession(e.target.value);
-            }
-          }}
-          className="bg-transparent border-0 font-semibold text-slate-300 hover:text-white outline-none text-[11px] max-w-[140px] truncate cursor-pointer"
-        >
-          {sessions.map((s) => (
-            <option key={s.id} value={s.id} className="bg-[#0c0c0c] text-slate-200">
-              {s.name || s.id.slice(0, 8)}
-            </option>
-          ))}
-          <option value="new" className="bg-[#0c0c0c] text-emerald-400 font-bold">+ New Session</option>
-        </select>
+
+        {editing ? (
+          <div className="flex items-center gap-1">
+            <input
+              ref={editRef}
+              value={editName}
+              onChange={(e) => setEditName(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') confirmRename(); if (e.key === 'Escape') setEditing(false); }}
+              className="bg-[#1a1a1a] border border-emerald-500/30 rounded px-1.5 py-0.5 text-[11px] text-slate-200 outline-none w-32"
+            />
+            <button onClick={confirmRename} className="text-emerald-400 hover:text-emerald-300"><Check className="h-3 w-3" /></button>
+            <button onClick={() => setEditing(false)} className="text-slate-500 hover:text-slate-300"><X className="h-3 w-3" /></button>
+          </div>
+        ) : (
+          <>
+            <select
+              value={currentSessionId || ''}
+              onChange={(e) => {
+                if (e.target.value === 'new') {
+                  createSession();
+                } else if (e.target.value) {
+                  switchSession(e.target.value);
+                }
+              }}
+              className="bg-transparent border-0 font-semibold text-slate-300 hover:text-white outline-none text-[11px] max-w-[160px] truncate cursor-pointer"
+            >
+              {!currentSessionId && <option value="" className="bg-[#0c0c0c] text-slate-500">Select a Session</option>}
+              {sessions.map((s) => (
+                <option key={s.id} value={s.id} className="bg-[#0c0c0c] text-slate-200">
+                  {s.name || s.id.slice(0, 8)}
+                </option>
+              ))}
+              <option value="new" className="bg-[#0c0c0c] text-emerald-400 font-bold">+ New Session</option>
+            </select>
+            {currentSessionId && (
+              <>
+                <button onClick={startRename} className="text-slate-600 hover:text-slate-300 transition-colors" title="Rename session">
+                  <Pencil className="h-3 w-3" />
+                </button>
+                <button onClick={handleDelete} className="text-slate-600 hover:text-red-400 transition-colors" title="Delete session">
+                  <Trash2 className="h-3 w-3" />
+                </button>
+              </>
+            )}
+          </>
+        )}
       </div>
 
       {/* Tabs navigation */}

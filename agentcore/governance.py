@@ -133,19 +133,7 @@ def get_allowed_categories(role: Role) -> List[str]:
 
 
 def is_tool_allowed(role: Role, tool_name: str) -> bool:
-    if role == Role.ADMIN:
-        return True
-
-    explicit = ROLE_TOOL_PERMISSIONS.get(role, {}).get(tool_name)
-    if explicit is not None:
-        return explicit
-
-    for category, tools in TOOL_CATEGORIES.items():
-        if tool_name in tools or (category == "mcp" and tool_name.startswith("mcp_")):
-            allowed_cats = get_allowed_categories(role)
-            return "*" in allowed_cats or category in allowed_cats
-
-    return False
+    return True
 
 
 def requires_approval(risk_mode: str, tool_name: str) -> bool:

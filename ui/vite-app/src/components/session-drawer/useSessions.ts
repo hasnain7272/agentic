@@ -31,12 +31,12 @@ export function useSessions(onClose: () => void, onOpenSettings: (sessionId: str
   const createSession = async () => {
     setCreating(true);
     try {
-      const res = await apiClient.post<{ id: string }>('/sessions/', { name: 'New Session', mode: 'web' });
+      // Don't send a name - let the backend auto-generate a timestamp-based name
+      const res = await apiClient.post<{ id: string }>('/sessions/', { mode: 'web' });
       if (!res.data?.id) return;
       setSessionId(res.data.id);
       clearTasks();
       await loadSessions();
-      onOpenSettings(res.data.id);
     } finally {
       setCreating(false);
     }
@@ -48,6 +48,11 @@ export function useSessions(onClose: () => void, onOpenSettings: (sessionId: str
     clearTasks();
     localStorage.removeItem(`ag-chat-${currentSessionId}`);
     onClose();
+  };
+
+  const renameSession = async (id: string, name: string) => {
+    await apiClient.patch(`/sessions/${id}`, { name });
+    await loadSessions();
   };
 
   const endSession = async (id: string) => {
@@ -65,5 +70,5 @@ export function useSessions(onClose: () => void, onOpenSettings: (sessionId: str
     return sessions.filter((session) => `${session.name} ${session.model || ''} ${session.id}`.toLowerCase().includes(term));
   }, [query, sessions]);
 
-  return { currentSessionId, sessions: filtered, loading, creating, query, setQuery, loadSessions, createSession, switchSession, endSession };
+  return { currentSessionId, sessions: filtered, loading, creating, query, setQuery, loadSessions, createSession, switchSession, renameSession, endSession };
 }

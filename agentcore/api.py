@@ -24,7 +24,7 @@ from agentcore.auth import (
 )
 from agentcore.database import (
     get_db, TenantModel, UserModel, OrganizationModel, SessionModel,
-    TaskModel, ApprovalModel, MessageModel, Base,
+    TaskModel, ApprovalModel, MessageModel, Base, SessionStatus,
     create_session as db_create_session, create_task as db_create_task,
 )
 from agentcore.governance import get_governance_engine
@@ -224,12 +224,44 @@ async def create_session(
     user: TokenPayload = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    from datetime import datetime
+    
+    # Auto-generate dynamic session title using date and time
+    title = f"Session {datetime.utcnow().strftime('%d %b, %H:%M')}"
+    if req.name and req.name != "New Session":
+        title = req.name
+
+    # Query all existing active sessions for this user to form a mesh
+    existing_result = await db.execute(
+        select(SessionModel).where(
+            and_(
+                SessionModel.tenant_id == user.tenant_id,
+                SessionModel.user_id == user.user_id,
+                SessionModel.status == SessionStatus.active
+            )
+        )
+    )
+    existing_sessions = existing_result.scalars().all()
+    existing_ids = [s.id for s in existing_sessions]
+
     session = SessionModel(
         tenant_id=user.tenant_id, user_id=user.user_id,
-        title=req.name, active_model_id=req.model or settings.default_model,
-        system_prompt=req.system_prompt, meta={"workspaces": req.workspaces or []},
+        title=title, active_model_id=req.model or settings.default_model,
+        system_prompt=req.system_prompt, meta={"workspaces": req.workspaces or [], "a2a_links": existing_ids},
     )
     db.add(session)
+    await db.flush()
+
+    # Link existing sessions back to this new one to form a fully connected bidirectional mesh
+    for old_session in existing_sessions:
+        old_meta = dict(old_session.meta or {})
+        old_links = list(old_meta.get("a2a_links", []))
+        if session.id not in old_links:
+            old_links.append(session.id)
+        old_meta["a2a_links"] = old_links
+        old_session.meta = old_meta
+        db.add(old_session)
+
     await db.commit()
     await db.refresh(session)
     return {
@@ -251,11 +283,55 @@ async def list_sessions(
     )
     return {
         "sessions": [
-            {"id": s.id, "name": s.name, "model": s.model, "created_at": s.created_at.isoformat(),
-             "workspaces": (s.meta or {}).get("workspaces", [])}
+            {
+                "id": s.id,
+                "name": s.name,
+                "model": s.model,
+                "created_at": s.created_at.isoformat(),
+                "a2a_links": (s.meta or {}).get("a2a_links", [])
+            }
             for s in result.scalars().all()
         ]
     }
+
+@sessions_router.post("/{session_id}/link")
+async def link_session(
+    session_id: str,
+    req: Dict[str, Any],
+    user: TokenPayload = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    session = await _get_owned_session(db, session_id, user)
+    target_id = req.get("target_session_id")
+    if not target_id:
+        raise HTTPException(400, "target_session_id required")
+    
+    meta = dict(session.meta or {})
+    a2a_links = list(meta.get("a2a_links", []))
+    if target_id not in a2a_links:
+        a2a_links.append(target_id)
+    meta["a2a_links"] = a2a_links
+    session.meta = meta
+    db.add(session)
+    await db.commit()
+    return {"a2a_links": a2a_links}
+
+@sessions_router.delete("/{session_id}/link/{target_id}")
+async def unlink_session(
+    session_id: str,
+    target_id: str,
+    user: TokenPayload = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    session = await _get_owned_session(db, session_id, user)
+    meta = dict(session.meta or {})
+    a2a_links = list(meta.get("a2a_links", []))
+    a2a_links = [tid for tid in a2a_links if tid != target_id]
+    meta["a2a_links"] = a2a_links
+    session.meta = meta
+    db.add(session)
+    await db.commit()
+    return {"a2a_links": a2a_links}
 
 @sessions_router.get("/{session_id}")
 async def get_session(
@@ -304,6 +380,21 @@ async def delete_session(
     await db.delete(session)
     await db.commit()
     return {"deleted": True}
+
+@sessions_router.patch("/{session_id}")
+async def rename_session(
+    session_id: str,
+    req: Dict[str, Any],
+    user: TokenPayload = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    session = await _get_owned_session(db, session_id, user)
+    new_name = req.get("name", "").strip()
+    if new_name:
+        session.title = new_name
+        db.add(session)
+        await db.commit()
+    return {"id": session.id, "name": session.title}
 
 @sessions_router.post("/{session_id}/workspaces")
 async def add_session_workspace(
@@ -730,12 +821,12 @@ async def get_byok_settings(
     user: TokenPayload = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(select(TenantModel).where(TenantModel.id == user.tenant_id))
-    tenant = result.scalar_one_or_none()
-    if not tenant:
-        raise HTTPException(404, "Tenant not found")
+    result = await db.execute(select(UserModel).where(UserModel.id == user.user_id))
+    db_user = result.scalar_one_or_none()
+    if not db_user:
+        raise HTTPException(404, "User not found")
     
-    byom_configs = (tenant.settings or {}).get("byom_configs", [])
+    byom_configs = (db_user.settings or {}).get("byom_configs", [])
     data = []
     for cfg in byom_configs:
         data.append({
@@ -757,13 +848,13 @@ async def save_byok_settings(
     user: TokenPayload = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(select(TenantModel).where(TenantModel.id == user.tenant_id))
-    tenant = result.scalar_one_or_none()
-    if not tenant:
-        raise HTTPException(404, "Tenant not found")
+    result = await db.execute(select(UserModel).where(UserModel.id == user.user_id))
+    db_user = result.scalar_one_or_none()
+    if not db_user:
+        raise HTTPException(404, "User not found")
     
-    tenant_settings = dict(tenant.settings or {})
-    byom_configs = list(tenant_settings.get("byom_configs", []))
+    user_settings = dict(db_user.settings or {})
+    byom_configs = list(user_settings.get("byom_configs", []))
     
     found = False
     for i, cfg in enumerate(byom_configs):
@@ -796,11 +887,32 @@ async def save_byok_settings(
             "max_tokens": req.max_tokens,
         })
     
-    tenant_settings["byom_configs"] = byom_configs
-    tenant.settings = tenant_settings
-    db.add(tenant)
+    user_settings["byom_configs"] = byom_configs
+    db_user.settings = user_settings
+    db.add(db_user)
     await db.commit()
     return {"status": "success", "data": {"status": "success"}}
+
+@settings_router.delete("/byok/{config_id}")
+async def delete_byok_settings(
+    config_id: str,
+    user: TokenPayload = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(select(UserModel).where(UserModel.id == user.user_id))
+    db_user = result.scalar_one_or_none()
+    if not db_user:
+        raise HTTPException(404, "User not found")
+    
+    user_settings = dict(db_user.settings or {})
+    byom_configs = list(user_settings.get("byom_configs", []))
+    byom_configs = [cfg for cfg in byom_configs if cfg.get("id") != config_id]
+    
+    user_settings["byom_configs"] = byom_configs
+    db_user.settings = user_settings
+    db.add(db_user)
+    await db.commit()
+    return {"status": "success"}
 
 
 # =============================================================================
@@ -883,6 +995,7 @@ mcp_router = APIRouter(prefix="/mcp", tags=["mcp"])
 
 @mcp_router.get("/catalog")
 async def get_mcp_catalog(
+    session_id: Optional[str] = Query(None),
     user: TokenPayload = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
@@ -913,11 +1026,19 @@ async def get_mcp_catalog(
             "parameters": formatted_params
         })
     
-    result = await db.execute(select(TenantModel).where(TenantModel.id == user.tenant_id))
-    tenant = result.scalar_one_or_none()
     plugins = []
-    if tenant and tenant.settings:
-        plugins = tenant.settings.get("http_plugins", [])
+    stdio_servers = 0
+    if session_id:
+        session = await _get_owned_session(db, session_id, user)
+        meta = session.meta or {}
+        plugins = meta.get("http_plugins", [])
+        stdio_servers = len(meta.get("mcp_servers", []))
+    else:
+        result = await db.execute(select(TenantModel).where(TenantModel.id == user.tenant_id))
+        tenant = result.scalar_one_or_none()
+        if tenant and tenant.settings:
+            plugins = tenant.settings.get("http_plugins", [])
+            stdio_servers = len(tenant.settings.get("mcp_servers", []))
         
     formatted_plugins = []
     for p in plugins:
@@ -950,10 +1071,6 @@ async def get_mcp_catalog(
         {"id": "web", "label": "Web", "count": sum(1 for t in formatted_tools if t["category"] == "web")},
     ]
 
-    stdio_servers = 0
-    if tenant and tenant.settings:
-        stdio_servers = len(tenant.settings.get("mcp_servers", []))
-
     return {
         "status": "success",
         "tools": formatted_tools,
@@ -974,14 +1091,20 @@ async def get_mcp_catalog(
 
 @mcp_router.get("/dashboard")
 async def get_mcp_dashboard(
+    session_id: Optional[str] = Query(None),
     user: TokenPayload = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    result = await db.execute(select(TenantModel).where(TenantModel.id == user.tenant_id))
-    tenant = result.scalar_one_or_none()
     plugins = []
-    if tenant and tenant.settings:
-        plugins = tenant.settings.get("http_plugins", [])
+    if session_id:
+        session = await _get_owned_session(db, session_id, user)
+        meta = session.meta or {}
+        plugins = meta.get("http_plugins", [])
+    else:
+        result = await db.execute(select(TenantModel).where(TenantModel.id == user.tenant_id))
+        tenant = result.scalar_one_or_none()
+        if tenant and tenant.settings:
+            plugins = tenant.settings.get("http_plugins", [])
         
     plugin_metrics = []
     for p in plugins:
@@ -1007,14 +1130,20 @@ async def get_mcp_dashboard(
 
 @mcp_router.get("/stdio/servers")
 async def list_stdio_servers(
+    session_id: Optional[str] = Query(None),
     user: TokenPayload = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    result = await db.execute(select(TenantModel).where(TenantModel.id == user.tenant_id))
-    tenant = result.scalar_one_or_none()
     servers = []
-    if tenant and tenant.settings:
-        servers = tenant.settings.get("mcp_servers", [])
+    if session_id:
+        session = await _get_owned_session(db, session_id, user)
+        meta = session.meta or {}
+        servers = meta.get("mcp_servers", [])
+    else:
+        result = await db.execute(select(TenantModel).where(TenantModel.id == user.tenant_id))
+        tenant = result.scalar_one_or_none()
+        if tenant and tenant.settings:
+            servers = tenant.settings.get("mcp_servers", [])
     return {"servers": servers}
 
 @mcp_router.post("/stdio/register")
@@ -1023,14 +1152,7 @@ async def register_stdio_server(
     user: TokenPayload = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    result = await db.execute(select(TenantModel).where(TenantModel.id == user.tenant_id))
-    tenant = result.scalar_one_or_none()
-    if not tenant:
-        raise HTTPException(404, "Tenant not found")
-        
-    tenant_settings = dict(tenant.settings or {})
-    servers = list(tenant_settings.get("mcp_servers", []))
-    
+    session_id = req.get("session_id")
     name = req.get("name")
     new_server = {
         "name": name,
@@ -1040,41 +1162,78 @@ async def register_stdio_server(
         "description": req.get("description") or f"Stdio MCP: {name}",
         "status": "running"
     }
-    
-    found = False
-    for i, s in enumerate(servers):
-        if s.get("name") == name:
-            servers[i] = new_server
-            found = True
-            break
-    if not found:
-        servers.append(new_server)
+
+    if session_id:
+        session = await _get_owned_session(db, session_id, user)
+        meta = dict(session.meta or {})
+        servers = list(meta.get("mcp_servers", []))
         
-    tenant_settings["mcp_servers"] = servers
-    tenant.settings = tenant_settings
-    db.add(tenant)
-    await db.commit()
+        found = False
+        for i, s in enumerate(servers):
+            if s.get("name") == name:
+                servers[i] = new_server
+                found = True
+                break
+        if not found:
+            servers.append(new_server)
+        
+        meta["mcp_servers"] = servers
+        session.meta = meta
+        db.add(session)
+        await db.commit()
+    else:
+        result = await db.execute(select(TenantModel).where(TenantModel.id == user.tenant_id))
+        tenant = result.scalar_one_or_none()
+        if not tenant:
+            raise HTTPException(404, "Tenant not found")
+        tenant_settings = dict(tenant.settings or {})
+        servers = list(tenant_settings.get("mcp_servers", []))
+        
+        found = False
+        for i, s in enumerate(servers):
+            if s.get("name") == name:
+                servers[i] = new_server
+                found = True
+                break
+        if not found:
+            servers.append(new_server)
+            
+        tenant_settings["mcp_servers"] = servers
+        tenant.settings = tenant_settings
+        db.add(tenant)
+        await db.commit()
+        
     return {"status": "success", "server": new_server}
 
 @mcp_router.delete("/stdio/{name}")
 async def remove_stdio_server(
     name: str,
+    session_id: Optional[str] = Query(None),
     user: TokenPayload = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    result = await db.execute(select(TenantModel).where(TenantModel.id == user.tenant_id))
-    tenant = result.scalar_one_or_none()
-    if not tenant:
-        raise HTTPException(404, "Tenant not found")
+    if session_id:
+        session = await _get_owned_session(db, session_id, user)
+        meta = dict(session.meta or {})
+        servers = list(meta.get("mcp_servers", []))
+        filtered_servers = [s for s in servers if s.get("name") != name]
+        meta["mcp_servers"] = filtered_servers
+        session.meta = meta
+        db.add(session)
+        await db.commit()
+    else:
+        result = await db.execute(select(TenantModel).where(TenantModel.id == user.tenant_id))
+        tenant = result.scalar_one_or_none()
+        if not tenant:
+            raise HTTPException(404, "Tenant not found")
+        tenant_settings = dict(tenant.settings or {})
+        servers = list(tenant_settings.get("mcp_servers", []))
+        filtered_servers = [s for s in servers if s.get("name") != name]
+        tenant_settings["mcp_servers"] = filtered_servers
+        tenant.settings = tenant_settings
+        db.add(tenant)
+        await db.commit()
         
-    tenant_settings = dict(tenant.settings or {})
-    servers = list(tenant_settings.get("mcp_servers", []))
-    filtered_servers = [s for s in servers if s.get("name") != name]
-    
-    tenant_settings["mcp_servers"] = filtered_servers
-    tenant.settings = tenant_settings
-    db.add(tenant)
-    await db.commit()
     return {"status": "success"}
 
 @mcp_router.get("/stdio/{name}/tools")
@@ -1098,14 +1257,7 @@ async def register_http_plugin(
     user: TokenPayload = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    result = await db.execute(select(TenantModel).where(TenantModel.id == user.tenant_id))
-    tenant = result.scalar_one_or_none()
-    if not tenant:
-        raise HTTPException(404, "Tenant not found")
-        
-    tenant_settings = dict(tenant.settings or {})
-    plugins = list(tenant_settings.get("http_plugins", []))
-    
+    session_id = req.get("session_id")
     name = req.get("name")
     new_plugin = {
         "name": name,
@@ -1113,41 +1265,78 @@ async def register_http_plugin(
         "description": req.get("description") or f"Plugin: {name}",
         "status": "active"
     }
-    
-    found = False
-    for i, p in enumerate(plugins):
-        if p.get("name") == name:
-            plugins[i] = new_plugin
-            found = True
-            break
-    if not found:
-        plugins.append(new_plugin)
+
+    if session_id:
+        session = await _get_owned_session(db, session_id, user)
+        meta = dict(session.meta or {})
+        plugins = list(meta.get("http_plugins", []))
         
-    tenant_settings["http_plugins"] = plugins
-    tenant.settings = tenant_settings
-    db.add(tenant)
-    await db.commit()
+        found = False
+        for i, p in enumerate(plugins):
+            if p.get("name") == name:
+                plugins[i] = new_plugin
+                found = True
+                break
+        if not found:
+            plugins.append(new_plugin)
+            
+        meta["http_plugins"] = plugins
+        session.meta = meta
+        db.add(session)
+        await db.commit()
+    else:
+        result = await db.execute(select(TenantModel).where(TenantModel.id == user.tenant_id))
+        tenant = result.scalar_one_or_none()
+        if not tenant:
+            raise HTTPException(404, "Tenant not found")
+        tenant_settings = dict(tenant.settings or {})
+        plugins = list(tenant_settings.get("http_plugins", []))
+        
+        found = False
+        for i, p in enumerate(plugins):
+            if p.get("name") == name:
+                plugins[i] = new_plugin
+                found = True
+                break
+        if not found:
+            plugins.append(new_plugin)
+            
+        tenant_settings["http_plugins"] = plugins
+        tenant.settings = tenant_settings
+        db.add(tenant)
+        await db.commit()
+        
     return {"status": "success", "plugin": new_plugin}
 
 @mcp_router.delete("/{plugin_name}")
 async def remove_http_plugin(
     plugin_name: str,
+    session_id: Optional[str] = Query(None),
     user: TokenPayload = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    result = await db.execute(select(TenantModel).where(TenantModel.id == user.tenant_id))
-    tenant = result.scalar_one_or_none()
-    if not tenant:
-        raise HTTPException(404, "Tenant not found")
+    if session_id:
+        session = await _get_owned_session(db, session_id, user)
+        meta = dict(session.meta or {})
+        plugins = list(meta.get("http_plugins", []))
+        filtered_plugins = [p for p in plugins if p.get("name") != plugin_name]
+        meta["http_plugins"] = filtered_plugins
+        session.meta = meta
+        db.add(session)
+        await db.commit()
+    else:
+        result = await db.execute(select(TenantModel).where(TenantModel.id == user.tenant_id))
+        tenant = result.scalar_one_or_none()
+        if not tenant:
+            raise HTTPException(404, "Tenant not found")
+        tenant_settings = dict(tenant.settings or {})
+        plugins = list(tenant_settings.get("http_plugins", []))
+        filtered_plugins = [p for p in plugins if p.get("name") != plugin_name]
+        tenant_settings["http_plugins"] = filtered_plugins
+        tenant.settings = tenant_settings
+        db.add(tenant)
+        await db.commit()
         
-    tenant_settings = dict(tenant.settings or {})
-    plugins = list(tenant_settings.get("http_plugins", []))
-    filtered_plugins = [p for p in plugins if p.get("name") != plugin_name]
-    
-    tenant_settings["http_plugins"] = filtered_plugins
-    tenant.settings = tenant_settings
-    db.add(tenant)
-    await db.commit()
     return {"status": "success"}
 
 

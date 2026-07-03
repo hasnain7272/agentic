@@ -101,6 +101,7 @@ class UserModel(Base):
     organization_id = Column(String(36), ForeignKey("organizations.id"), nullable=True)
     api_key_hash = Column(String(64), nullable=True, index=True)
     is_active = Column(Boolean, default=True)
+    settings = Column(JSON, default=dict)
     last_login = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

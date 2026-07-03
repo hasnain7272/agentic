@@ -5,7 +5,6 @@ import { CommandPalette } from '@/features/commander/CommandPalette';
 import { ToastContainer } from '@/components/Toast';
 import { useSessionStore } from '@/store/sessionStore';
 import { Login } from '@/features/auth/Login';
-import GitHubCallbackPage from '@/pages/GitHubCallback';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const token = localStorage.getItem('auth_token');
@@ -56,7 +55,6 @@ export default function App() {
     <HashRouter>
       <Routes>
         <Route path="/login" element={<Login />} />
-        <Route path="/github/callback" element={<GitHubCallbackPage />} />
         <Route 
           path="/*" 
           element={

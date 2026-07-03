@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import type { ToolCall } from '@/features/chat/types';
-import { DiffViewer } from '@/features/workspace/DiffViewer';
 import { Eye, CheckCircle2, XCircle, AlertCircle, Loader2, Clock } from 'lucide-react';
 
 function tone(name: string) {
@@ -37,28 +36,12 @@ function formatDuration(started?: string, completed?: string) {
 }
 
 export function ToolCallCard({ call }: { call: ToolCall }) {
-  const [showDiff, setShowDiff] = useState(false);
   const [showResult, setShowResult] = useState(false);
   const name = call.function?.name || 'tool_execution';
   const argsRaw = call.function?.arguments || '{}';
   const [label, dot, title, shell, head] = tone(name);
   const status = call.status || 'pending';
   const duration = formatDuration(call.started_at, call.completed_at);
-
-  const isFileEdit = name === 'replace_file_content' || name === 'multi_replace_file_content';
-  let diffProps: any = null;
-
-  if (isFileEdit) {
-    try {
-      const args = JSON.parse(argsRaw);
-      if (args.TargetFile && (args.ReplacementContent || args.ReplacementChunks)) {
-        diffProps = {
-          path: args.TargetFile,
-          content: args.ReplacementContent || JSON.stringify(args.ReplacementChunks, null, 2)
-        };
-      }
-    } catch {}
-  }
 
   return (
     <>
@@ -81,11 +64,6 @@ export function ToolCallCard({ call }: { call: ToolCall }) {
           <span className="ml-1 flex items-center gap-1 relative z-10">
             {getStatusIcon(status)}
           </span>
-          {diffProps && (
-            <button onClick={() => setShowDiff(true)} className="ml-2 flex items-center gap-1 rounded bg-slate-800 px-1.5 py-0.5 text-[10px] text-cyan-400 hover:bg-slate-700 transition">
-              <Eye className="h-3 w-3" /> View Diff
-            </button>
-          )}
           <span className="ml-auto flex items-center gap-1.5 text-[10px]">
             <span className="uppercase tracking-wider text-slate-500">{label}</span>
             {duration && <span className="text-slate-600 font-mono">{duration}</span>}
@@ -127,9 +105,6 @@ export function ToolCallCard({ call }: { call: ToolCall }) {
           </div>
         )}
       </div>
-      {showDiff && diffProps && (
-        <DiffViewer path={diffProps.path} content={diffProps.content} onClose={() => setShowDiff(false)} />
-      )}
     </>
   );
 }
