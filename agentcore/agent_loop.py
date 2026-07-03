@@ -340,7 +340,7 @@ Always explain your reasoning before taking actions."""
             await self._update_task(context, TaskStatus.needs_approval)
             yield {"type": "state_change", "state": context.state.value}
             async for db in get_db():
-                await add_tool_call(db, context.session_id, context.task_id, tool_name, arguments, "pending_approval")
+                tc = await add_tool_call(db, context.session_id, context.task_id, tool_name, arguments, "pending_approval")
                 break
             yield {
                 "type": "approval_required",
@@ -348,24 +348,28 @@ Always explain your reasoning before taking actions."""
                 "arguments": arguments,
                 "message": str(e),
                 "approval_id": tool_call_id,
+                "tool_call_id": tc.id,
             }
             return
 
         # Execute tool
         context.state = AgentState.EXECUTING
         yield {"type": "state_change", "state": context.state.value}
-        yield {"type": "tool_call", "tool": tool_name, "arguments": arguments}
+        yield {"type": "tool_call", "tool": tool_name, "arguments": arguments, "tool_call_id": tool_call_id}
+        yield {"type": "tool_progress", "tool": tool_name, "tool_call_id": tool_call_id, "progress": 0, "status": "starting"}
 
         handler = get_tool_handler(tool_name)
         if not handler:
             result_data = {"success": False, "error": f"Unknown tool: {tool_name}"}
         else:
             try:
+                yield {"type": "tool_progress", "tool": tool_name, "tool_call_id": tool_call_id, "progress": 50, "status": "running"}
                 result = await handler(**arguments)
                 result_data = result.model_dump() if hasattr(result, 'model_dump') else result
             except Exception as e:
                 logger.error(f"Tool execution error: {e}")
                 result_data = {"success": False, "error": str(e)}
+                yield {"type": "tool_progress", "tool": tool_name, "tool_call_id": tool_call_id, "progress": 100, "status": "failed", "error": str(e)}
 
         context.tool_calls.append({
             "tool": tool_name, "arguments": arguments, "result": result_data,
@@ -374,12 +378,23 @@ Always explain your reasoning before taking actions."""
 
         async for db in get_db():
             tool_success = result_data.get("success") if isinstance(result_data, dict) else False
-            await add_tool_call(
+            tc = await add_tool_call(
                 db, context.session_id, context.task_id,
                 tool_name, arguments, "completed" if tool_success else "failed",
                 result_data.get("data") if isinstance(result_data, dict) else result_data,
                 result_data.get("error") if isinstance(result_data, dict) else None,
-)
+            )
+            # Update started_at and completed_at timestamps
+            from sqlalchemy import update
+            await db.execute(
+                update(ToolCallModel)
+                .where(ToolCallModel.id == tc.id)
+                .values(
+                    started_at=datetime.utcnow(),
+                    completed_at=datetime.utcnow() if tool_success else None,
+                )
+            )
+            await db.commit()
             break
 
         # Add result to conversation
@@ -397,6 +412,7 @@ Always explain your reasoning before taking actions."""
         # Persist the tool result message to database
         await self._persist_message(context, "tool", content, tool_call_id)
 
+        yield {"type": "tool_progress", "tool": tool_name, "tool_call_id": tool_call_id, "progress": 100, "status": "completed"}
         yield {"type": "tool_result", "tool": tool_name, "result": result_data}
 
     async def _persist_message(self, context: AgentContext, role: str, content: str, tool_call_id: str = None) -> None:

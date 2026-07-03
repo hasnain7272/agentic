@@ -470,6 +470,25 @@ class ToolRegistry:
             for t in self._tools.values()
         ]
 
+    def get_schemas(self, category: Optional[str] = None) -> List[ToolSchema]:
+        if not self._discovered:
+            self._discover()
+        if category:
+            return [t.schema for t in self._tools.values() if t.category == category]
+        return [t.schema for t in self._tools.values()]
+
+    def get_categories(self) -> List[str]:
+        if not self._discovered:
+            self._discover()
+        return list(sorted(set(t.category for t in self._tools.values())))
+
+    def get_openai_functions(self, category: Optional[str] = None) -> List[Dict[str, Any]]:
+        schemas = self.get_schemas(category)
+        return [s.to_openai_function() for s in schemas]
+
+    async def discover_mcp_tools(self) -> int:
+        return 0
+
     def _discover(self) -> None:
         if self._discovered:
             return

@@ -285,7 +285,11 @@ DerivedData/
 .DS_Store
 .AppleDouble
 .LSOverride
-Icon
+Icon
+
+
+
+
 ._*
 .DocumentRevisions-V100
 .fseventsd
@@ -493,3 +497,4 @@ gcloud/
 .kilo/
 scratch/
 
+.aider*
