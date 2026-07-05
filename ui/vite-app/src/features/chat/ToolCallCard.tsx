@@ -53,14 +53,14 @@ export function ToolCallCard({ call }: { call: ToolCall }) {
               <div className="h-2 w-2 rounded-full bg-cyan-400" />
               <span className="text-[9px] text-cyan-400">{call.progress}%</span>
             </div>
-          ) : (
+          ) : status === 'running' ? (
             <div className="flex items-center gap-1">
               <Loader2 className="h-3 w-3 text-cyan-400 animate-spin" />
               <span className="text-[9px] text-cyan-400">Running</span>
             </div>
-          )}
-          <span className="h-2 w-2 rounded-full ${dot} relative z-10" />
-          <span className="font-mono text-xs font-semibold ${title} relative z-10">{name}</span>
+          ) : null}
+          <span className={`h-2 w-2 rounded-full ${dot} relative z-10`} />
+          <span className={`font-mono text-xs font-semibold ${title} relative z-10`}>{name}</span>
           <span className="ml-1 flex items-center gap-1 relative z-10">
             {getStatusIcon(status)}
           </span>
@@ -81,7 +81,7 @@ export function ToolCallCard({ call }: { call: ToolCall }) {
           </span>
         </div>
         <pre className="max-h-40 overflow-auto whitespace-pre-wrap px-3 py-2 font-mono text-xs text-slate-400">
-          {argsRaw}
+          {typeof argsRaw === 'string' ? argsRaw : JSON.stringify(argsRaw, null, 2)}
         </pre>
         {showResult && call.result !== undefined && (
           <div className="border-t border-slate-700/50 px-3 py-2 bg-slate-950/50">

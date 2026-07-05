@@ -1,4 +1,5 @@
 import logging
+import asyncio
 from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, File, UploadFile, WebSocket, WebSocketDisconnect
 
@@ -97,18 +98,38 @@ async def ws_task_stream(
     try:
         await manager.send(conn_id, {"type": "connected", "session_id": session_id, "task_id": task_id})
 
-        from agentcore.agent_loop import run_agent_stream
-        async for event in run_agent_stream(
-            session_id=session_id,
-            task_id=task_id,
-            user_message=description,
-            tenant_id=auth["tenant_id"],
-            user_id=auth["user_id"],
-            user_role=auth["role"],
-        ):
-            await manager.send(conn_id, event)
-            if event.get("type") in ("done", "error"):
-                break
+        # Heartbeat task to keep the WebSocket active during long agent/MCP executions
+        async def send_heartbeats():
+            try:
+                while True:
+                    await asyncio.sleep(10.0)
+                    await manager.send(conn_id, {"type": "heartbeat"})
+            except asyncio.CancelledError:
+                pass
+            except Exception as ex:
+                logger.debug(f"Heartbeat send error: {ex}")
+
+        hb_task = asyncio.create_task(send_heartbeats())
+
+        try:
+            from agentcore.agent_loop import run_agent_stream
+            async for event in run_agent_stream(
+                session_id=session_id,
+                task_id=task_id,
+                user_message=description,
+                tenant_id=auth["tenant_id"],
+                user_id=auth["user_id"],
+                user_role=auth["role"],
+            ):
+                await manager.send(conn_id, event)
+                if event.get("type") in ("done", "error"):
+                    break
+        finally:
+            hb_task.cancel()
+            try:
+                await hb_task
+            except asyncio.CancelledError:
+                pass
 
         while True:
             data = await websocket.receive_json()
@@ -121,3 +142,24 @@ async def ws_task_stream(
         logger.error(f"WS task stream error: {e}")
         await manager.send(conn_id, {"type": "error", "error": str(e)})
         manager.disconnect(conn_id)
+
+@tasks_router.post("/{task_id}/stop")
+async def stop_task(
+    task_id: str,
+    user: TokenPayload = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    from agentcore.database import TaskModel, TaskStatus
+    result = await db.execute(select(TaskModel).where(TaskModel.id == task_id, TaskModel.tenant_id == user.tenant_id))
+    task = result.scalar_one_or_none()
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+        
+    if task.status in (TaskStatus.running, TaskStatus.pending, TaskStatus.needs_approval):
+        task.status = TaskStatus.cancelled
+        db.add(task)
+        await db.commit()
+        return {"status": "success", "message": "Task cancellation requested."}
+        
+    return {"status": "ignored", "message": f"Task already in terminal state: {task.status}"}
+

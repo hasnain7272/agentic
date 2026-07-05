@@ -1,6 +1,7 @@
 """Web Search MCP — Search the web using DuckDuckGo HTML scraping (no API keys required)."""
 import urllib.request
 import urllib.parse
+import asyncio
 from bs4 import BeautifulSoup
 from agentcore.mcps import register_mcp
 
@@ -13,16 +14,18 @@ class WebSearchMCP:
         "search_web": {"params": {"query": "string"}, "desc": "Perform web search and return title, URL, snippets"},
     }
 
-    async def call_tool(self, name: str, args: dict) -> dict:
+    async def call_tool(self, name: str, args: dict, **kwargs) -> dict:
         if name == "search_web":
             query = args["query"]
             url = f"https://html.duckduckgo.com/html/?q={urllib.parse.quote(query)}"
-            req = urllib.request.Request(
-                url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
-            )
-            try:
+            def do_search():
+                req = urllib.request.Request(
+                    url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+                )
                 with urllib.request.urlopen(req, timeout=10) as response:
-                    html = response.read()
+                    return response.read()
+            try:
+                html = await asyncio.to_thread(do_search)
                 soup = BeautifulSoup(html, "html.parser")
                 results = []
                 for a in soup.find_all("a", class_="result__snippet")[:8]:

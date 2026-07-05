@@ -1,4 +1,4 @@
-import { Loader2, Send } from 'lucide-react';
+import { Loader2, Send, Square } from 'lucide-react';
 import type { ModelOption } from '@/features/chat/types';
 
 interface Props {
@@ -9,6 +9,7 @@ interface Props {
   inputRef: React.RefObject<HTMLTextAreaElement | null>;
   onInput: (value: string) => void;
   onSend?: () => void;
+  onStop?: () => void;
   onModelSelect: (id: string) => void;
   disabled?: boolean;
 }
@@ -21,12 +22,21 @@ export function ChatComposer({
   inputRef,
   onInput,
   onSend,
+  onStop,
   onModelSelect,
   disabled = false,
 }: Props) {
-  const submit = (e: React.FormEvent) => { e.preventDefault(); onSend?.(); };
+  const submit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (streaming) return;
+    onSend?.();
+  };
   const keyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); onSend?.(); }
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      if (streaming) return;
+      onSend?.();
+    }
   };
   const activeModel = modelOptions.find(m => m.id === activeModelId) || modelOptions[0];
 
@@ -58,11 +68,16 @@ export function ChatComposer({
           className="flex-1 min-h-[42px] max-h-48 rounded bg-[#1e1e1e] border border-[#2e2e2e] px-3 py-2 text-sm text-slate-100 outline-none placeholder:text-slate-600 resize-none disabled:opacity-50 focus:border-emerald-500/50"
         />
         <button
-          type="submit"
-          disabled={streaming || !input.trim() || !modelOptions.length || disabled}
-          className="flex h-10 w-10 shrink-0 items-center justify-center rounded bg-emerald-600 text-white transition hover:bg-emerald-500 disabled:opacity-30"
+          type={streaming ? 'button' : 'submit'}
+          onClick={streaming ? onStop : undefined}
+          disabled={!streaming && (!input.trim() || !modelOptions.length || disabled)}
+          className={`flex h-10 w-10 shrink-0 items-center justify-center rounded transition ${
+            streaming 
+              ? 'bg-rose-600 hover:bg-rose-500 text-white cursor-pointer' 
+              : 'bg-emerald-600 hover:bg-emerald-500 text-white disabled:opacity-30'
+          }`}
         >
-          {streaming ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+          {streaming ? <Square className="h-3.5 w-3.5 fill-white" /> : <Send className="h-4 w-4" />}
         </button>
       </div>
     </form>

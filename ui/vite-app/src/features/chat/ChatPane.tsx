@@ -1,9 +1,36 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, Component, ErrorInfo, ReactNode } from 'react';
 import { Sparkles, Loader2 } from 'lucide-react';
 import { ChatComposer } from '@/features/chat/ChatComposer';
 import { MessageBubble } from '@/features/chat/MessageBubble';
 import { useChatController } from '@/features/chat/useChatController';
 import { useSessionStore } from '@/store/sessionStore';
+
+interface ErrorBoundaryProps {
+  children?: ReactNode;
+}
+interface ErrorBoundaryState {
+  hasError: boolean;
+}
+class MessageErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
+  public state: ErrorBoundaryState = { hasError: false };
+  public static getDerivedStateFromError(): ErrorBoundaryState {
+    return { hasError: true };
+  }
+  public componentDidCatch(error: Error, errorInfo: ErrorInfo) {
+    console.error("Message bubble render error:", error, errorInfo);
+  }
+  public render() {
+    if (this.state.hasError) {
+      return (
+        <div className="rounded-xl border border-red-900/30 bg-red-950/20 p-3 text-xs text-red-300">
+          <span className="font-semibold block mb-0.5">Render Error</span>
+          <span className="text-[11px] text-slate-500">Failed to render message bubble.</span>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 export function ChatPane() {
   const endRef = useRef<HTMLDivElement>(null);
@@ -59,12 +86,13 @@ export function ChatPane() {
           ) : (
             <>
               {chat.msgs.map((m) => (
-                <MessageBubble
-                  key={m.id ?? `${m.role}-${m.created_at ?? Date.now()}-${m.content?.slice(0, 50)}`}
-                  {...m}
-                  sessionId={chat.sessionId}
-                  onApprove={chat.approve}
-                />
+                <MessageErrorBoundary key={m.id ?? `${m.role}-${m.created_at ?? Date.now()}-${m.content?.slice(0, 50)}`}>
+                  <MessageBubble
+                    {...m}
+                    sessionId={chat.sessionId}
+                    onApprove={chat.approve}
+                  />
+                </MessageErrorBoundary>
               ))}
               {chat.streaming && (
                 <div className="flex items-center gap-2 text-[11px] text-slate-500">
@@ -78,7 +106,7 @@ export function ChatPane() {
         <div ref={endRef} />
       </div>
       <div className="border-t border-[#1e1e1e] bg-[#0c0c0c] p-4">
-        <div className="mx-auto max-w-3xl space-y-2">
+        <div className="mx-auto max-w-3xl">
           <ChatComposer
             input={chat.input}
             streaming={chat.streaming}
@@ -86,7 +114,8 @@ export function ChatPane() {
             activeModelId={chat.activeModelId}
             inputRef={chat.inputRef}
             onInput={chat.setInput}
-            onSend={canSend ? chat.send : undefined}
+            onSend={chat.send}
+            onStop={chat.stop}
             onModelSelect={chat.setActiveModelId}
             disabled={!canSend}
           />

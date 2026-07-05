@@ -2,6 +2,7 @@
 import urllib.request
 import urllib.error
 import re
+import asyncio
 from bs4 import BeautifulSoup
 from agentcore.mcps import register_mcp
 
@@ -15,16 +16,18 @@ class WebFetchMCP:
         "extract_text": {"params": {"html_content": "string"}, "desc": "Clean HTML and extract main text content"},
     }
 
-    async def call_tool(self, name: str, args: dict) -> dict:
+    async def call_tool(self, name: str, args: dict, **kwargs) -> dict:
         if name == "fetch_url":
             url = args["url"]
-            req = urllib.request.Request(
-                url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
-            )
-            try:
+            def do_fetch():
+                req = urllib.request.Request(
+                    url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+                )
                 with urllib.request.urlopen(req, timeout=15) as response:
-                    body = response.read().decode("utf-8", errors="replace")
-                    return {"content": body[:200000], "truncated": len(body) > 200000}
+                    return response.read().decode("utf-8", errors="replace")
+            try:
+                body = await asyncio.to_thread(do_fetch)
+                return {"content": body[:200000], "truncated": len(body) > 200000}
             except Exception as e:
                 return {"error": str(e), "success": False}
         elif name == "extract_text":

@@ -183,6 +183,8 @@ async def list_stdio_servers(
     user: TokenPayload = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
+    from agentcore.mcp import get_mcp_manager
+    manager = get_mcp_manager()
     servers = []
     if session_id:
         session = await _get_owned_session(db, session_id, user)
@@ -193,7 +195,15 @@ async def list_stdio_servers(
         tenant = result.scalar_one_or_none()
         if tenant and tenant.settings:
             servers = tenant.settings.get("mcp_servers", [])
-    return {"servers": servers}
+            
+    # Enrich servers with active connection status
+    enriched = []
+    for s in servers:
+        name = s.get("name")
+        client = manager.get_client(name)
+        status = client.status if client else "offline"
+        enriched.append({**s, "status": status})
+    return {"servers": enriched}
 
 @mcp_router.post("/stdio/register")
 async def register_stdio_server(
@@ -241,7 +251,11 @@ async def list_stdio_server_tools(
     name: str,
     user: TokenPayload = Depends(get_current_user)
 ):
-    return {"tools": []}
+    from agentcore.mcp import get_mcp_manager
+    client = get_mcp_manager().get_client(name)
+    if not client or client.status != "healthy":
+        return {"tools": [], "error": f"Server {name} is offline."}
+    return {"tools": client.tools}
 
 @mcp_router.post("/stdio/{server_name}/execute")
 async def execute_stdio_tool(
@@ -249,7 +263,17 @@ async def execute_stdio_tool(
     req: Dict[str, Any],
     user: TokenPayload = Depends(get_current_user)
 ):
-    return {"success": True, "result": "Tool executed successfully."}
+    from agentcore.mcp import get_mcp_manager
+    client = get_mcp_manager().get_client(server_name)
+    if not client or client.status != "healthy":
+        raise HTTPException(status_code=400, detail=f"Server {server_name} is offline.")
+    tool_name = req.get("tool")
+    args = req.get("arguments") or {}
+    try:
+        res = await client.call_tool(tool_name, args)
+        return {"success": True, "result": res}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
 
 @mcp_router.post("/register")
 async def register_http_plugin(

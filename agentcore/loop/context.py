@@ -18,45 +18,73 @@ class ContextWindow:
         """
         Compresses message history to keep it inside self.max_tokens.
         1. Keeps system prompts untouched.
-        2. Keeps last 3 turns (user/assistant) fully intact.
-        3. Replaces old tool results with a tiny 1-line summary indicator.
-        4. Compiles older turns into a unified context summary.
+        2. Compresses JSON payloads and strips structural whitespace/newlines to fit context limit.
+        3. Never truncates strings or drops data, just compacts representation.
         """
-        if len(messages) <= 5:
-            return messages
+        import json
+        import re
 
-        system_msgs = [m for m in messages if m.get("role") == "system"]
-        chat_msgs = [m for m in messages if m.get("role") != "system"]
-
-        # Keep last 4 chat messages intact
-        keep_count = min(len(chat_msgs), 4)
-        older_msgs = chat_msgs[:-keep_count]
-        recent_msgs = chat_msgs[-keep_count:]
-
-        # Clean/compress older messages
-        compressed_older = []
-        for msg in older_msgs:
-            role = msg.get("role")
-            content = msg.get("content") or ""
-            # Strip huge tool call logs
-            if role == "tool" or msg.get("tool_calls"):
-                content = f"[Tool Call Result: {content[:100]}...]" if len(content) > 100 else content
-            compressed_older.append({"role": role, "content": content})
-
-        # Compile a summary block if we have compressed older messages
-        summary_content = "Conversation history summary:\n"
-        for m in compressed_older:
-            summary_content += f"- {m['role'].capitalize()}: {m['content']}\n"
+        def clean_content(content: Any) -> str:
+            if not content:
+                return ""
+            if isinstance(content, dict) or isinstance(content, list):
+                # Compact JSON representation (no whitespace/newlines)
+                return json.dumps(content, separators=(",", ":"))
+            
+            text = str(content)
+            # Try parsing string as JSON to compact it
+            try:
+                parsed = json.loads(text)
+                return json.dumps(parsed, separators=(",", ":"))
+            except Exception:
+                pass
+            
+            # Collapse multiple spaces and newlines
+            text = re.sub(r"[ \t]+", " ", text)
+            text = re.sub(r"\n+", "\n", text)
+            return text.strip()
 
         compacted = []
-        if system_msgs:
-            compacted.append(system_msgs[0])  # Primary system prompt
-        if len(compressed_older) > 0:
-            compacted.append({"role": "system", "content": summary_content[:1500]})
-        compacted.extend(recent_msgs)
-
+        for msg in messages:
+            role = msg.get("role")
+            content = msg.get("content")
+            
+            new_msg = {"role": role}
+            if content:
+                new_msg["content"] = clean_content(content)
+                
+            if "tool_calls" in msg and msg["tool_calls"]:
+                # Compact tool calls parameters
+                new_tool_calls = []
+                for tc in msg["tool_calls"]:
+                    fn = tc.get("function") or {}
+                    args = fn.get("arguments") or ""
+                    try:
+                        args_parsed = json.loads(args)
+                        args_compact = json.dumps(args_parsed, separators=(",", ":"))
+                    except Exception:
+                        args_compact = clean_content(args)
+                    
+                    new_tool_calls.append({
+                        "id": tc.get("id"),
+                        "type": tc.get("type", "function"),
+                        "function": {
+                            "name": fn.get("name"),
+                            "arguments": args_compact
+                        }
+                    })
+                new_msg["tool_calls"] = new_tool_calls
+                
+            if "tool_call_id" in msg:
+                new_msg["tool_call_id"] = msg["tool_call_id"]
+            if "name" in msg:
+                new_msg["name"] = msg["name"]
+                
+            compacted.append(new_msg)
+            
         return compacted
 
     def format_agent_result(self, agent_name: str, task: str, result: str) -> str:
-        """Inject A2A results in a compressed format."""
-        return f"[{agent_name}] Task: {task} -> {result[:400]}"
+        """Inject A2A results in a compressed format without losing data."""
+        return f"[{agent_name}] Task: {task} -> {result}"
+
