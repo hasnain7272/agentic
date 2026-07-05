@@ -79,7 +79,6 @@ export function DashboardHeader({
   const tabs = [
     { id: 'chat', label: 'Chat', icon: MessageSquare },
     { id: 'settings', label: 'Settings', icon: Settings },
-    { id: 'swarm', label: 'Swarm', icon: Network },
     { id: 'mcp', label: 'MCP', icon: Cpu },
   ];
 

@@ -20,6 +20,7 @@ export function useChatController() {
   const tenantId = useSessionStore((s) => s.tenantId);
   const upsertTask = useTaskStore((s) => s.upsertTask);
   const setActive = useTaskStore((s) => s.setActiveTask);
+  const activeTaskId = useTaskStore((s) => s.activeTaskId);
   const addToast = useToastStore((s) => s.addToast);
   const activeModelId = useSessionStore((s) => s.activeModelId);
   const setActiveModelId = useSessionStore((s) => s.setActiveModelId);
@@ -109,7 +110,17 @@ export function useChatController() {
       setStreaming(true);
       setActivity([]);
       pushActivity({ id: 'thinking', kind: 'thinking', label: 'Brain connected', detail: 'Waiting for first token or tool decision.' });
-      setMsgs((p) => [...p, { role: 'assistant', content: '', streaming: true }]);
+      setMsgs((p) => {
+        const last = p[p.length - 1];
+        if (last && last.role === 'assistant') {
+          contentBuffer = last.content || '';
+          reasoningBuffer = last.reasoning || '';
+          return p.map((m, idx) => idx === p.length - 1 ? { ...m, streaming: true } : m);
+        }
+        contentBuffer = '';
+        reasoningBuffer = '';
+        return [...p, { role: 'assistant', content: '', streaming: true }];
+      });
     };
 
     ws.onmessage = (event) => {
@@ -177,7 +188,21 @@ export function useChatController() {
           pushActivity({ id: `tool-${name}`, kind: 'tool', label: name, detail });
           setMsgs((p) => p.map((m, i) =>
             i === p.length - 1
-              ? { ...m, tool_calls: m.tool_calls?.map(tc => tc.function?.name === name ? { ...tc, progress: data.progress, status: kind === 'tool_result' ? 'done' : tc.status } : tc) }
+              ? {
+                  ...m,
+                  tool_calls: m.tool_calls?.map(tc =>
+                    tc.function?.name === name
+                      ? {
+                          ...tc,
+                          progress: data.progress,
+                          status: kind === 'tool_result' ? (data.result?.success === false ? 'failed' : 'done') : tc.status,
+                          result: kind === 'tool_result' ? data.result?.data : tc.result,
+                          error: kind === 'tool_result' ? data.result?.error : tc.error,
+                          completed_at: kind === 'tool_result' ? new Date().toISOString() : tc.completed_at
+                        }
+                      : tc
+                  )
+                }
               : m
           ));
           return;
@@ -267,6 +292,9 @@ export function useChatController() {
     try {
       await apiClient.post(`/chat/${sid}/approve`, { message_id: messageId, decision });
       await loadHistory();
+      if (activeTaskId) {
+        streamTask(activeTaskId);
+      }
     } catch (err) {
       addToast('error', 'Approval failed');
     }

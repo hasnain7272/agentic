@@ -201,8 +201,23 @@ async def approve_chat_tool(
     user: TokenPayload = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    approval_id = req.get("message_id")
+    msg_id = req.get("message_id")
     decision = req.get("decision")
+
+    # 1. Look up by Message ID first
+    msg_res = await db.execute(
+        select(MessageModel).where(MessageModel.id == msg_id)
+    )
+    msg = msg_res.scalar_one_or_none()
+
+    approval_id = None
+    if msg and msg.meta:
+        approval_id = msg.meta.get("approval_id")
+
+    if not approval_id:
+        # Fallback to direct approval_id lookup
+        approval_id = msg_id
+
     result = await db.execute(
         select(ApprovalModel).where(
             ApprovalModel.id == approval_id,
@@ -212,8 +227,39 @@ async def approve_chat_tool(
     approval = result.scalar_one_or_none()
     if not approval:
         raise HTTPException(404, "Approval not found")
+
     approval.status = "approved" if decision == "approved" else "rejected"
     approval.approver_id = user.user_id
     approval.approved_at = datetime.utcnow()
+
+    # 2. Update ToolCallModel status
+    if approval.context and "tool_call_id" in approval.context:
+        tc_id = approval.context["tool_call_id"]
+        tc_res = await db.execute(select(ToolCallModel).where(ToolCallModel.id == tc_id))
+        tc = tc_res.scalar_one_or_none()
+        if tc:
+            tc.status = "approved" if decision == "approved" else "rejected"
+            db.add(tc)
+
+    # 3. Update message meta status so UI updates StatusMark
+    if msg:
+        meta = dict(msg.meta or {})
+        meta["status"] = "APPROVED" if decision == "approved" else "DENIED"
+        msg.meta = meta
+        db.add(msg)
+
+    # 4. If denied, add a tool rejection message to the DB so the LLM gets it
+    if decision == "denied":
+        tool_call_id = approval.context.get("tool_call_id") if approval.context else None
+        from agentcore.database import add_message
+        await add_message(
+            db,
+            session_id=session_id,
+            role="tool",
+            content="Tool execution denied by user.",
+            task_id=msg.task_id if msg else None,
+            tool_call_id=tool_call_id
+        )
+
     await db.commit()
     return {"status": approval.status}

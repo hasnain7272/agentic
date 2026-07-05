@@ -45,11 +45,30 @@ async def create_session(
     # All tools enabled by default
     all_tool_names = get_tool_registry().get_all_names()
 
+    # Pre-register the built-in local host PC MCP server
+    default_mcp_servers = [
+        {"name": "filesystem-mcp", "type": "builtin", "description": "Read, write, search, and manage local files"},
+        {"name": "bash-exec-mcp", "type": "builtin", "description": "Execute shell commands (PowerShell/bash)"},
+        {"name": "python-exec-mcp", "type": "builtin", "description": "Run arbitrary Python code snippets"},
+        {"name": "git-mcp", "type": "builtin", "description": "Manage local git repositories"},
+        {"name": "github-mcp", "type": "builtin", "description": "GitHub API integration"},
+        {"name": "web-fetch-mcp", "type": "builtin", "description": "Fetch web pages and extract text"},
+        {"name": "web-search-mcp", "type": "builtin", "description": "Search the web via DuckDuckGo"},
+        {"name": "sqlite-mcp", "type": "builtin", "description": "Query and manage local SQLite databases"},
+        {"name": "memory-mcp", "type": "builtin", "description": "Store and recall key-value facts"},
+        {"name": "image-gen-mcp", "type": "builtin", "description": "Generate images and mockups"},
+    ]
+
     session = SessionModel(
         tenant_id=user.tenant_id, user_id=user.user_id,
         title=title, active_model_id=req.model or settings.default_model,
         system_prompt=req.system_prompt,
-        meta={"a2a_links": [], "byok_config": session_byok, "enabled_tools": all_tool_names},
+        meta={
+            "a2a_links": [],
+            "byok_config": session_byok,
+            "enabled_tools": all_tool_names,
+            "mcp_servers": default_mcp_servers
+        },
     )
     db.add(session)
     await db.commit()
@@ -180,6 +199,7 @@ async def delete_session(
     await db.execute(MessageModel.__table__.delete().where(MessageModel.session_id == session_id))
     await db.execute(TaskModel.__table__.delete().where(TaskModel.session_id == session_id))
     await db.execute(ToolCallModel.__table__.delete().where(ToolCallModel.session_id == session_id))
+    await db.execute(ApprovalModel.__table__.delete().where(ApprovalModel.tenant_id == user.tenant_id))
     await db.delete(session)
     await db.commit()
     return {"deleted": True}

@@ -3,8 +3,8 @@ import type { ToolCall } from '@/features/chat/types';
 import { Eye, CheckCircle2, XCircle, AlertCircle, Loader2, Clock } from 'lucide-react';
 
 function tone(name: string) {
-  if (name === 'delegate_task') return ['Sub-agent', 'bg-violet-400', 'text-violet-300', 'bg-violet-950/20 border-violet-800/30 ring-1 ring-violet-500/20', 'bg-violet-900/20'];
-  if (name === 'search_past_decisions') return ['Memory', 'bg-amber-400', 'text-amber-300', 'bg-amber-950/20 border-amber-800/30 ring-1 ring-amber-500/20', 'bg-amber-900/20'];
+  if (name === 'delegate_to_agent') return ['A2A Agent', 'bg-violet-400', 'text-violet-300', 'bg-violet-950/20 border-violet-800/30 ring-1 ring-violet-500/20', 'bg-violet-900/20'];
+  if (name === 'create_mcp_agent') return ['Swarm Config', 'bg-emerald-400', 'text-emerald-300', 'bg-emerald-950/20 border-emerald-800/30 ring-1 ring-emerald-500/20', 'bg-emerald-900/20'];
   return ['Execution', 'bg-cyan-400', 'text-cyan-300', 'bg-slate-950/60 border-slate-700/50', 'bg-slate-800/70'];
 }
 

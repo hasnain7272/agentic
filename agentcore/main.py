@@ -64,6 +64,16 @@ def main():
     print(f"  Env:  {settings.app_env}")
     print("=" * 60)
 
+    import signal
+    import os
+
+    def force_exit_handler(sig, frame):
+        print("\n[AgentCore] Force terminating process...")
+        os._exit(0)
+
+    signal.signal(signal.SIGINT, force_exit_handler)
+    signal.signal(signal.SIGTERM, force_exit_handler)
+
     uvicorn.run(
         "agentcore.api:create_app",
         host=args.host,

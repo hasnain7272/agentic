@@ -1,28 +1,13 @@
 """
-AgentCore Agent Loop - Facade
+AgentCore Agent Loop runner adapter for WebSocket task stream.
 """
-from typing import Any, AsyncGenerator, Dict
-from agentcore.auth import TokenPayload
-from agentcore.loop.state import AgentState, AgentContext
-from agentcore.loop.llm import LLMCaller
-from agentcore.loop.orchestrator import AgentLoop
-from agentcore.loop.worker import process_task_event, process_tool_event
+import logging
+from typing import AsyncGenerator, Dict, Any
+from agentcore.database import get_db
+from agentcore.loop.state import AgentContext
+from agentcore.loop.agents import ManagementAgent
 
-async def run_agent(
-    session_id: str,
-    task_id: str,
-    user_message: str,
-    user: TokenPayload,
-    llm_client: Any = None,
-) -> AsyncGenerator[Dict[str, Any], None]:
-    context = AgentContext(
-        session_id=session_id, task_id=task_id, user_id=user.sub,
-        tenant_id=user.tenant_id, organization_id=user.organization_id,
-        user_role=user.role, risk_mode="auto",
-    )
-    agent = AgentLoop(llm_client=llm_client)
-    async for event in agent.run(context, user_message):
-        yield event
+logger = logging.getLogger(__name__)
 
 
 async def run_agent_stream(
@@ -31,14 +16,26 @@ async def run_agent_stream(
     user_message: str,
     tenant_id: str,
     user_id: str,
-    user_role: str = "developer",
-    llm_client: Any = None,
+    user_role: str,
 ) -> AsyncGenerator[Dict[str, Any], None]:
-    """Convenience wrapper for WebSocket callers that pass individual fields."""
-    user = TokenPayload(
-        sub=user_id, tenant_id=tenant_id,
-        role=user_role, email="", organization_id=None,
-        exp=0, iat=0,
+    """Wraps ManagementAgent coordinator run generator for routers/tasks.py WS stream."""
+    logger.info(f"Starting agent loop stream for session {session_id}, task {task_id}")
+    
+    context = AgentContext(
+        session_id=session_id,
+        task_id=task_id,
+        user_id=user_id,
+        tenant_id=tenant_id,
+        user_role=user_role
     )
-    async for event in run_agent(session_id, task_id, user_message, user, llm_client):
-        yield event
+    
+    async for db in get_db():
+        agent = ManagementAgent(session_id=session_id, db_session=db, context=context)
+        try:
+            async for event in agent.run(user_message):
+                yield event
+            yield {"type": "done"}
+        except Exception as e:
+            logger.error(f"Error in agent stream: {e}")
+            yield {"type": "error", "error": str(e)}
+        break

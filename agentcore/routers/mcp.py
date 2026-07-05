@@ -19,6 +19,13 @@ settings = get_settings()
 
 mcp_router = APIRouter(prefix="/mcp", tags=["mcp"])
 
+@mcp_router.get("/traffic")
+async def get_mcp_traffic(
+    user: TokenPayload = Depends(get_current_user)
+):
+    from agentcore.mcp import _mcp_traffic
+    return {"traffic": _mcp_traffic}
+
 @mcp_router.get("/catalog")
 async def get_mcp_catalog(
     session_id: Optional[str] = Query(None),
@@ -79,9 +86,27 @@ async def get_mcp_catalog(
     skills = [
         {
             "id": "code_refactoring",
-            "name": "Code Refactoring",
-            "description": "Examines code patterns and performs clean refactoring",
-            "prompt": "Refactor the workspace files to adhere to standards",
+            "name": "Code Refactoring & Optimization",
+            "description": "Examines code patterns, edits files, and optimizes algorithms locally.",
+            "prompt": "Inspect codebase files, refactor imports, optimize execution paths, and verify syntax.",
+            "tools": formatted_tools,
+            "ready": True,
+            "coverage": 100
+        },
+        {
+            "id": "developer_swarm",
+            "name": "Developer Swarm (Sysops & Testing)",
+            "description": "Executes shell commands, manages dependencies, runs tests, and automates builds.",
+            "prompt": "Use local terminal tools to execute bash commands, run test suites, and troubleshoot shell execution.",
+            "tools": formatted_tools,
+            "ready": True,
+            "coverage": 100
+        },
+        {
+            "id": "cognitive_swarm",
+            "name": "Cognitive Brain (Memory & Handoffs)",
+            "description": "Orchestrates multi-agent pipelines, preserves long-term memories, and resolves queries.",
+            "prompt": "Store and recall session facts. Link multiple agents together and delegate tasks to collaborate on complex objectives.",
             "tools": formatted_tools,
             "ready": True,
             "coverage": 100

@@ -1,7 +1,6 @@
 import { useEffect } from 'react';
 import { HashRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { DashboardLayout } from '@/layouts/DashboardLayout';
-import { CommandPalette } from '@/features/commander/CommandPalette';
 import { ToastContainer } from '@/components/Toast';
 import { useSessionStore } from '@/store/sessionStore';
 import { Login } from '@/features/auth/Login';
@@ -20,7 +19,6 @@ function MainApp() {
   const ensureSession = useSessionStore((s) => s.ensureSession);
   const initLlmFromStorage = useSessionStore((s) => s.initLlmFromStorage);
   const status = useSessionStore((s) => s.status);
-  const sessionId = useSessionStore((s) => s.sessionId);
   const token = localStorage.getItem('auth_token');
 
   useEffect(() => {
@@ -44,7 +42,6 @@ function MainApp() {
   return (
     <div className="min-h-screen bg-slate-950 text-slate-50 font-sans">
       <DashboardLayout />
-      <CommandPalette />
       <ToastContainer />
     </div>
   );

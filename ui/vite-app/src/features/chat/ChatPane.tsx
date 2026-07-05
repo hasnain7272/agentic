@@ -1,19 +1,14 @@
 import { useEffect, useRef } from 'react';
-import { Sparkles, Loader2, Plus } from 'lucide-react';
+import { Sparkles, Loader2 } from 'lucide-react';
 import { ChatComposer } from '@/features/chat/ChatComposer';
 import { MessageBubble } from '@/features/chat/MessageBubble';
-import { ActivityRail } from '@/features/chat/ActivityRail';
 import { useChatController } from '@/features/chat/useChatController';
 import { useSessionStore } from '@/store/sessionStore';
-import { useTaskStore } from '@/store/taskStore';
 
 export function ChatPane() {
   const endRef = useRef<HTMLDivElement>(null);
   const chat = useChatController();
   const sessionId = useSessionStore((s) => s.sessionId);
-  const setSessionId = useSessionStore((s) => s.setSessionId);
-  const clearTasks = useTaskStore((s) => s.clearTasks);
-  const loadSessions = useSessionStore((s) => s.ensureSession);
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -84,7 +79,6 @@ export function ChatPane() {
       </div>
       <div className="border-t border-[#1e1e1e] bg-[#0c0c0c] p-4">
         <div className="mx-auto max-w-3xl space-y-2">
-          <ActivityRail items={chat.activity} streaming={chat.streaming} />
           <ChatComposer
             input={chat.input}
             streaming={chat.streaming}

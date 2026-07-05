@@ -146,8 +146,8 @@ class SessionModel(Base):
     def model(self) -> str:
         return self.active_model_id
     user = relationship("UserModel", back_populates="sessions")
-    tasks = relationship("TaskModel", back_populates="session")
-    messages = relationship("MessageModel", back_populates="session")
+    tasks = relationship("TaskModel", back_populates="session", cascade="all, delete-orphan")
+    messages = relationship("MessageModel", back_populates="session", cascade="all, delete-orphan")
 
 
 class TaskModel(Base):
@@ -155,7 +155,7 @@ class TaskModel(Base):
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     tenant_id = Column(String(36), ForeignKey("tenants.id"), nullable=False, index=True)
-    session_id = Column(String(36), ForeignKey("sessions.id"), nullable=False, index=True)
+    session_id = Column(String(36), ForeignKey("sessions.id", ondelete="CASCADE"), nullable=False, index=True)
     description = Column(Text, nullable=False)
     status = Column(Enum(TaskStatus), default=TaskStatus.pending, index=True)
     iteration_count = Column(Integer, default=0)
@@ -169,15 +169,15 @@ class TaskModel(Base):
 
     tenant = relationship("TenantModel", back_populates="tasks")
     session = relationship("SessionModel", back_populates="tasks")
-    tool_calls = relationship("ToolCallModel", back_populates="task")
+    tool_calls = relationship("ToolCallModel", back_populates="task", cascade="all, delete-orphan")
 
 
 class MessageModel(Base):
     __tablename__ = "messages"
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    session_id = Column(String(36), ForeignKey("sessions.id"), nullable=False, index=True)
-    task_id = Column(String(36), ForeignKey("tasks.id"), nullable=True, index=True)
+    session_id = Column(String(36), ForeignKey("sessions.id", ondelete="CASCADE"), nullable=False, index=True)
+    task_id = Column(String(36), ForeignKey("tasks.id", ondelete="CASCADE"), nullable=True, index=True)
     role = Column(String(20), nullable=False)
     content = Column(Text, nullable=True)
     reasoning = Column(Text, nullable=True)
@@ -195,8 +195,8 @@ class ToolCallModel(Base):
     __tablename__ = "tool_calls"
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    task_id = Column(String(36), ForeignKey("tasks.id"), nullable=False, index=True)
-    session_id = Column(String(36), ForeignKey("sessions.id"), nullable=False, index=True)
+    task_id = Column(String(36), ForeignKey("tasks.id", ondelete="CASCADE"), nullable=False, index=True)
+    session_id = Column(String(36), ForeignKey("sessions.id", ondelete="CASCADE"), nullable=False, index=True)
     name = Column(String(100), nullable=False)
     arguments = Column(JSON, default=dict)
     result = Column(Text, nullable=True)
