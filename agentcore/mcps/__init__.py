@@ -21,7 +21,7 @@ def get_all_mcps() -> Dict[str, Any]:
     # Trigger imports to register all MCPs
     from agentcore.mcps import (
         filesystem, bash_exec, python_exec, git_ops, github_api,
-        web_fetch, web_search, sqlite_db, memory, image_gen,
+        web_fetch, web_search, sqlite_db, memory, image_gen, project_ops,
     )
     return dict(_BUILTIN_MCPS)
 

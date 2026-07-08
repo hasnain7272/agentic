@@ -5,12 +5,12 @@ interface Props {
   input: string;
   streaming: boolean;
   modelOptions: ModelOption[];
-  activeModelId: string;
+  modelPriorities: string[];
   inputRef: React.RefObject<HTMLTextAreaElement | null>;
   onInput: (value: string) => void;
   onSend?: () => void;
   onStop?: () => void;
-  onModelSelect: (id: string) => void;
+  onModelPrioritiesChange?: (priorities: string[]) => void;
   disabled?: boolean;
 }
 
@@ -18,12 +18,12 @@ export function ChatComposer({
   input,
   streaming,
   modelOptions,
-  activeModelId,
+  modelPriorities = [],
   inputRef,
   onInput,
   onSend,
   onStop,
-  onModelSelect,
+  onModelPrioritiesChange,
   disabled = false,
 }: Props) {
   const submit = (e: React.FormEvent) => {
@@ -38,22 +38,70 @@ export function ChatComposer({
       onSend?.();
     }
   };
-  const activeModel = modelOptions.find(m => m.id === activeModelId) || modelOptions[0];
+
+  const removeModel = (id: string) => {
+    if (onModelPrioritiesChange) {
+      onModelPrioritiesChange(modelPriorities.filter(m => m !== id));
+    }
+  };
+
+  const addModel = (id: string) => {
+    if (id && onModelPrioritiesChange && !modelPriorities.includes(id)) {
+      onModelPrioritiesChange([...modelPriorities, id]);
+    }
+  };
 
   return (
-    <form onSubmit={submit} className="space-y-2">
-      <div className="flex items-center gap-2">
-        <select
-          value={activeModel?.id || ''}
-          onChange={(e) => onModelSelect(e.target.value)}
-          disabled={streaming || !modelOptions.length || disabled}
-          className="flex-1 rounded bg-[#1e1e1e] border border-[#2e2e2e] px-3 py-1.5 text-[11px] font-medium text-slate-200 outline-none focus:border-emerald-500/50 disabled:opacity-50"
-        >
-          {!modelOptions.length && <option value="">No model configured</option>}
-          {modelOptions.map((model) => (
-            <option key={model.id} value={model.id}>{model.label}</option>
-          ))}
-        </select>
+    <form onSubmit={submit} className="space-y-3">
+      {/* Dynamic Swarm Team Configurator */}
+      <div className="rounded-lg border border-slate-800 bg-[#0e0e0e]/50 p-2.5 space-y-2">
+        <div className="flex items-center justify-between">
+          <span className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold px-0.5">Active Swarm Model Team</span>
+          <select
+            value=""
+            onChange={(e) => { addModel(e.target.value); e.target.value = ""; }}
+            disabled={streaming || disabled}
+            className="rounded bg-[#1a1a1a] border border-[#2e2e2e] px-2 py-1 text-[10px] font-medium text-cyan-400 outline-none hover:border-cyan-500/50 cursor-pointer"
+          >
+            <option value="">+ Add Model to Swarm</option>
+            {modelOptions.filter(m => !modelPriorities.includes(m.id)).map((model) => (
+              <option key={model.id} value={model.id}>{model.label}</option>
+            ))}
+          </select>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-1.5 min-h-[32px]">
+          {!modelPriorities || !modelPriorities.length ? (
+            <span className="text-xs text-slate-600 italic px-0.5">No swarm models configured. Add a model to start.</span>
+          ) : (
+            modelPriorities.map((modelId, index) => {
+              const matched = modelOptions.find(m => m.id === modelId);
+              const label = matched ? matched.label : modelId;
+              const isLead = index === 0;
+              return (
+                <div 
+                  key={modelId} 
+                  className={`flex items-center gap-1.5 rounded px-2 py-1 text-xs border ${
+                    isLead 
+                      ? 'bg-emerald-950/20 border-emerald-800/40 text-emerald-400 font-semibold' 
+                      : 'bg-slate-900/30 border-slate-800/80 text-slate-400'
+                  }`}
+                >
+                  <span className="text-[9px] uppercase tracking-wider text-slate-500">{index + 1} {isLead ? 'Lead' : 'QA'}</span>
+                  <span>{label}</span>
+                  <button
+                    type="button"
+                    onClick={() => removeModel(modelId)}
+                    disabled={streaming || disabled}
+                    className="hover:text-red-400 text-slate-600 transition ml-1"
+                  >
+                    ×
+                  </button>
+                </div>
+              );
+            })
+          )}
+        </div>
       </div>
 
       <div className="flex items-end gap-2">

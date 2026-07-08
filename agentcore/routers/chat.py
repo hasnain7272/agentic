@@ -29,6 +29,7 @@ class ChatCreateRequest(BaseModel):
     message: str
     shadow_mode: Optional[bool] = False
     active_model_id: Optional[str] = None
+    model_priorities: Optional[List[str]] = None
 
 @chat_router.post("/")
 async def create_chat_message(
@@ -46,9 +47,17 @@ async def create_chat_message(
     if not session:
         raise HTTPException(404, "Session not found")
 
-    # If the user passed active_model_id, update it on the session
-    if req.active_model_id:
-        session.active_model_id = req.active_model_id
+    # If the user passed active_model_id or model_priorities, update it on the session
+    if req.active_model_id or req.model_priorities:
+        meta = dict(session.meta or {})
+        if req.model_priorities:
+            meta["model_priorities"] = req.model_priorities
+            if req.model_priorities:
+                session.active_model_id = req.model_priorities[0]
+        elif req.active_model_id:
+            session.active_model_id = req.active_model_id
+            
+        session.meta = meta
         db.add(session)
         await db.flush()
 
@@ -189,6 +198,7 @@ async def get_chat_history(
             "id": m.id,
             "role": m.role,
             "content": m.content,
+            "reasoning": m.reasoning,
             "created_at": m.created_at.isoformat() if m.created_at else datetime.utcnow().isoformat(),
         })
 

@@ -111,12 +111,12 @@ export function ChatPane() {
             input={chat.input}
             streaming={chat.streaming}
             modelOptions={chat.modelOptions}
-            activeModelId={chat.activeModelId}
+            modelPriorities={chat.modelPriorities}
             inputRef={chat.inputRef}
             onInput={chat.setInput}
             onSend={chat.send}
             onStop={chat.stop}
-            onModelSelect={chat.setActiveModelId}
+            onModelPrioritiesChange={chat.setModelPriorities}
             disabled={!canSend}
           />
         </div>

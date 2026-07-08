@@ -284,6 +284,50 @@ export function useChatController() {
     startStream();
   }, [addToast, loadHistory, tenantId]);
 
+  const [modelPriorities, setModelPriorities] = useState<string[]>([]);
+
+  useEffect(() => {
+    if (!sid) return;
+    const fetchConfig = async () => {
+      try {
+        const res = await apiClient.get<{ model?: string; model_priorities?: string[] }>(`/sessions/${sid}/config`);
+        if (res.data?.model) {
+          setActiveModelId(res.data.model);
+        }
+        if (res.data?.model_priorities) {
+          setModelPriorities(res.data.model_priorities);
+        }
+      } catch (e) {
+        console.error("Failed to load session configs:", e);
+      }
+    };
+    fetchConfig();
+  }, [sid, setActiveModelId]);
+
+  const updateModelPriorities = useCallback(async (priorities: string[]) => {
+    setModelPriorities(priorities);
+    if (sid) {
+      try {
+        await apiClient.patch(`/sessions/${sid}/config`, { model_priorities: priorities });
+      } catch (e) {
+        console.error("Failed to save model priorities config:", e);
+      }
+    }
+  }, [sid]);
+
+  const updateActiveModel = useCallback(async (modelId: string) => {
+    setActiveModelId(modelId);
+    const updated = [modelId, ...modelPriorities.filter((m) => m !== modelId)];
+    setModelPriorities(updated);
+    if (sid) {
+      try {
+        await apiClient.patch(`/sessions/${sid}/config`, { model_priorities: updated });
+      } catch (e) {
+        console.error("Failed to save primary model config:", e);
+      }
+    }
+  }, [sid, modelPriorities, setActiveModelId]);
+
   const send = async () => {
     if (!input.trim() || streaming) return;
     const text = input.trim();
@@ -300,7 +344,8 @@ export function useChatController() {
     const res = await apiClient.post<{ task_id: string }>('/chat/', {
       session_id: sid,
       message: text,
-      active_model_id: useSessionStore.getState().activeModelId || undefined
+      active_model_id: modelPriorities[0] || useSessionStore.getState().activeModelId || undefined,
+      model_priorities: modelPriorities.length ? modelPriorities : undefined,
     });
 
     if (!res.data?.task_id) return addToast('error', res.error || 'Failed to start task.');
@@ -345,7 +390,8 @@ export function useChatController() {
     msgs,
     streaming,
     modelOptions,
-    activeModelId,
+    activeModelId: modelPriorities[0] || activeModelId,
+    modelPriorities,
     activity,
     inputRef,
     setInput,
@@ -354,6 +400,7 @@ export function useChatController() {
     upload,
     approve,
     reset,
-    setActiveModelId,
+    setActiveModelId: updateActiveModel,
+    setModelPriorities: updateModelPriorities,
   };
 }

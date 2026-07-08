@@ -57,6 +57,7 @@ async def create_session(
         {"name": "sqlite-mcp", "type": "builtin", "description": "Query and manage local SQLite databases"},
         {"name": "memory-mcp", "type": "builtin", "description": "Store and recall key-value facts"},
         {"name": "image-gen-mcp", "type": "builtin", "description": "Generate images and mockups"},
+        {"name": "project-ops-mcp", "type": "builtin", "description": "Workspace diagnostics, API rate limit audits, and code verification"},
     ]
 
     session = SessionModel(
@@ -284,9 +285,38 @@ async def get_session_config(
 
     byok_config = (session.meta or {}).get("byok_config")
     has_key = bool(byok_config and byok_config.get("api_key"))
+    model_priorities = (session.meta or {}).get("model_priorities", [])
 
     return {
         "model": session.active_model_id or settings.default_model,
+        "model_priorities": model_priorities,
         "api_key_masked": "********" if has_key else "",
         "byok_config": byok_config,
+    }
+
+@sessions_router.patch("/{session_id}/config")
+async def update_session_config(
+    session_id: str,
+    req: Dict[str, Any],
+    user: TokenPayload = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    session = await _get_owned_session(db, session_id, user)
+    meta = dict(session.meta or {})
+    
+    if "model_priorities" in req:
+        meta["model_priorities"] = req["model_priorities"]
+        # Maintain sync with active_model_id as the first element in priorities
+        if req["model_priorities"]:
+            session.active_model_id = req["model_priorities"][0]
+        
+    if "model" in req:
+        session.active_model_id = req["model"]
+        
+    session.meta = meta
+    db.add(session)
+    await db.commit()
+    return {
+        "model": session.active_model_id,
+        "model_priorities": meta.get("model_priorities", [])
     }

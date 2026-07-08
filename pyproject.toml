@@ -31,8 +31,9 @@ dependencies = [
      "opentelemetry-propagator-jaeger>=1.21.0",
      "kubernetes-asyncio>=28.1.0",
      "structlog>=23.2.0",
-     # Database migrations
      "alembic>=1.13",
+     "langgraph>=0.1.0",
+     "langchain-core",
  ]
 
 [project.optional-dependencies]

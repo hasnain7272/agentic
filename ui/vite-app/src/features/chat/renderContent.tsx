@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import React, { useState } from 'react';
 import { Check, Copy, ExternalLink, Terminal } from 'lucide-react';
 import { getAuthToken } from '@/api/client';
 
@@ -141,7 +141,7 @@ function renderTextAndAttachments(
     if (part.match(imageRegex)) {
       return (
         <div key={i} className="my-3 rounded-xl border border-slate-800 bg-slate-950/50 p-3 text-xs text-slate-400 font-mono">
-          Artifact path: {part} (Filesystem access is disabled in database-only mode)
+          Artifact path: {part} (Local file generated successfully. You can open and view it directly on your system.)
         </div>
       );
     }
@@ -152,7 +152,7 @@ function renderTextAndAttachments(
       const filename = attachmentMatch[1];
       return (
         <div key={i} className="my-3 rounded-xl border border-slate-850 bg-slate-950/50 p-3 text-xs text-slate-400 font-mono">
-          Attachment: {filename} (File uploads are disabled in database-only mode)
+          Attachment: {filename} (To work on this file, simply provide its absolute path on your system to the AI.)
         </div>
       );
     }
@@ -319,5 +319,14 @@ function parseInlineMarkdown(text: string): React.ReactNode {
     </a>
   ));
 
-  return <>{elements}</>;
+  return (
+    <>
+      {elements.map((el, index) => {
+        if (React.isValidElement(el)) {
+          return React.cloneElement(el, { key: `inline-${index}` });
+        }
+        return el;
+      })}
+    </>
+  );
 }
